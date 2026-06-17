@@ -2,16 +2,28 @@
 // Closes a match, stores the result, scores every prediction and updates points.
 
 const { SlashCommandBuilder } = require("discord.js");
-const { db, getMatch, transaction } = require("../../db/queries");
+const {
+  db,
+  getMatch,
+  getTournament,
+  transaction,
+} = require("../../db/queries");
 const {
   normalizeFootballScore,
   scoreFootball,
   scoreCricket,
 } = require("../../utils/scoring");
 const { ephemeral } = require("../../utils/embeds");
+const { refreshDashboard } = require("../../utils/dashboard");
+const { announceMatchResolved } = require("../../utils/notifications");
 
 const getPredictions = db.prepare(
   "SELECT * FROM predictions WHERE match_id = ?",
+);
+const getMatchTopEarners = db.prepare(
+  `SELECT discord_id, points_earned FROM predictions
+   WHERE match_id = ? AND points_earned > 0
+   ORDER BY points_earned DESC LIMIT 3`,
 );
 const updatePrediction = db.prepare(
   "UPDATE predictions SET points_earned = ? WHERE id = ?",
@@ -111,11 +123,29 @@ module.exports = {
 
     const { total, awarded } = resolveMatch(match, result);
 
-    return interaction.reply(
+    await interaction.reply(
       ephemeral(
         `🏁 Match \`${matchId}\` resolved — result: **${result}**.\n` +
           `Scored **${total}** prediction(s); **${awarded}** earned points.`,
       ),
     );
+
+    // Server-wide "match resolved" notification with the top scorers.
+    const tournament = match.tournament_id
+      ? getTournament(match.tournament_id)
+      : null;
+    await announceMatchResolved(interaction.client, {
+      match,
+      result,
+      total,
+      awarded,
+      topEarners: getMatchTopEarners.all(matchId),
+      tournamentName: tournament?.name ?? null,
+      tournamentChannelId: tournament?.channel_id ?? null,
+    });
+
+    if (match.tournament_id) {
+      await refreshDashboard(interaction.client, match.tournament_id);
+    }
   },
 };

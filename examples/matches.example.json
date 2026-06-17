@@ -1,0 +1,24 @@
+{
+  "matches": [
+    {
+      "type": "football",
+      "team_a": "Brazil",
+      "team_b": "Portugal",
+      "start_time": "now",
+      "end_time": "2026-06-20 18:00"
+    },
+    {
+      "type": "football",
+      "team_a": "France",
+      "team_b": "Spain",
+      "end_time": "in 3 hours"
+    },
+    {
+      "type": "cricket",
+      "team_a": "India",
+      "team_b": "Australia",
+      "start_time": "tomorrow 14:00",
+      "end_time": "tomorrow 18:00"
+    }
+  ]
+}

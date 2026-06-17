@@ -69,6 +69,7 @@ function zoneDateParts(epochMs, timeZone) {
  *   - "YYYY-MM-DD" or "YYYY-MM-DD HH:mm" (interpreted in `timeZone`)
  *   - Relative: "in 30 minutes", "in 2 hours", "in 3 days"
  *   - "today HH:mm" / "tomorrow HH:mm" (or bare "tomorrow")
+ *   - A trailing "UTC"/"GMT" forces UTC, e.g. "18:00 UTC", "2026-06-20 18:00 UTC"
  *   - ISO strings carrying an explicit offset/Z (parsed as-is)
  *
  * @param {string} input
@@ -77,8 +78,20 @@ function zoneDateParts(epochMs, timeZone) {
  */
 function parseEndTime(input, timeZone = TIMEZONE) {
   if (!input) return null;
-  const raw = String(input).trim();
-  const lower = raw.toLowerCase();
+  let raw = String(input).trim();
+  let lower = raw.toLowerCase();
+
+  // A trailing "UTC"/"GMT" marker forces the wall-clock value to be read in
+  // UTC instead of the configured TIMEZONE (e.g. "18:00 UTC").
+  const utcMark = /\s+(?:utc|gmt)$/i;
+  if (utcMark.test(raw)) {
+    timeZone = "UTC";
+    raw = raw.replace(utcMark, "").trim();
+    lower = raw.toLowerCase();
+  }
+
+  // 0) "now".
+  if (lower === "now") return Date.now();
 
   // 1) Pure Unix timestamp.
   if (/^\d+$/.test(raw)) {
@@ -121,7 +134,43 @@ function parseEndTime(input, timeZone = TIMEZONE) {
     return zonedWallTimeToEpoch(year, month, day, h, mi, timeZone);
   }
 
-  // 4) Absolute "YYYY-MM-DD" with optional time, interpreted in the zone.
+  // 4) Bare clock time: "17:00", "9:30", "5pm", "5:30 pm". Resolved to the next
+  //    occurrence of that time (today if still ahead, otherwise tomorrow).
+  const clock = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/.exec(lower);
+  if (clock && (clock[2] !== undefined || clock[3] !== undefined)) {
+    let h = Number(clock[1]);
+    const mi = clock[2] !== undefined ? Number(clock[2]) : 0;
+    const ap = clock[3];
+    if (ap) {
+      if (h < 1 || h > 12) return null;
+      if (ap === "pm" && h !== 12) h += 12;
+      if (ap === "am" && h === 12) h = 0;
+    }
+    if (h > 23 || mi > 59) return null;
+    const base = zoneDateParts(Date.now(), timeZone);
+    let epoch = zonedWallTimeToEpoch(
+      base.year,
+      base.month,
+      base.day,
+      h,
+      mi,
+      timeZone,
+    );
+    if (epoch <= Date.now()) {
+      const next = zoneDateParts(epoch + 86_400_000, timeZone);
+      epoch = zonedWallTimeToEpoch(
+        next.year,
+        next.month,
+        next.day,
+        h,
+        mi,
+        timeZone,
+      );
+    }
+    return epoch;
+  }
+
+  // 5) Absolute "YYYY-MM-DD" with optional time, interpreted in the zone.
   const abs = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2}))?$/.exec(
     lower,
   );
@@ -142,7 +191,7 @@ function parseEndTime(input, timeZone = TIMEZONE) {
     );
   }
 
-  // 5) Fallback: ISO strings that carry their own offset/Z.
+  // 6) Fallback: ISO strings that carry their own offset/Z.
   if (/[zZ]|[+-]\d{2}:?\d{2}/.test(raw) && /\d{4}-\d{2}-\d{2}t/i.test(raw)) {
     const ms = Date.parse(raw);
     return Number.isNaN(ms) ? null : ms;
@@ -215,9 +264,54 @@ function buildEndTimeSuggestions(query, timeZone = TIMEZONE) {
   return choices.slice(0, 25);
 }
 
+/**
+ * Build up to 25 autocomplete choices for a start-time field.
+ * Includes a "Now" option first, then the typed value, then presets.
+ * The "Now" choice uses the literal value "now".
+ *
+ * @param {string} query
+ * @param {string} [timeZone]
+ * @returns {Array<{ name: string, value: string }>}
+ */
+function buildStartTimeSuggestions(query, timeZone = TIMEZONE) {
+  const now = Date.now();
+  const choices = [{ name: "▶️ Now (open immediately)", value: "now" }];
+
+  // Surface a typed custom time (e.g. "17:00", "5pm", "tomorrow 09:00").
+  const q = (query || "").trim();
+  if (q && q.toLowerCase() !== "now") {
+    const parsed = parseEndTime(q, timeZone);
+    if (parsed) {
+      choices.push({
+        name: `📅 ${formatInZone(parsed, timeZone)}`.slice(0, 100),
+        value: String(Math.floor(parsed / 1000)),
+      });
+    }
+  }
+
+  const presets = [
+    ["in 15 minutes", 15 * 60_000],
+    ["in 30 minutes", 30 * 60_000],
+    ["in 1 hour", 60 * 60_000],
+    ["in 3 hours", 3 * 60 * 60_000],
+    ["in 6 hours", 6 * 60 * 60_000],
+    ["in 1 day", 24 * 60 * 60_000],
+  ];
+  for (const [label, delta] of presets) {
+    const epoch = now + delta;
+    choices.push({
+      name: `${label} — ${formatInZone(epoch, timeZone)}`.slice(0, 100),
+      value: String(Math.floor(epoch / 1000)),
+    });
+  }
+
+  return choices.slice(0, 25);
+}
+
 module.exports = {
   parseEndTime,
   toDiscordTimestamp,
   formatInZone,
   buildEndTimeSuggestions,
+  buildStartTimeSuggestions,
 };

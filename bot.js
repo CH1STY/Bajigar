@@ -4,7 +4,15 @@ const { Client, GatewayIntentBits, MessageFlags } = require("discord.js");
 const { loadCommands } = require("./utils/commandLoader");
 const { isManager } = require("./utils/permissions");
 const { startReminderScheduler } = require("./utils/notifications");
-const { MANAGER_ROLE } = require("./config/config");
+const { getTournamentByChannel } = require("./db/queries");
+const { MATCH_BUTTON_PREFIX } = require("./utils/dashboard");
+const {
+  handleMatchButton,
+  handleFootballScoreButton,
+  handleFootballModal,
+  handleCricketButton,
+} = require("./utils/predictionPanel");
+const { MANAGER_ROLE, ENFORCE_MANAGER_ROLE } = require("./config/config");
 
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
@@ -19,7 +27,7 @@ const commands = loadCommands();
 console.log(`📦 Loaded ${commands.size} command(s).`);
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
 });
 
 client.once("clientReady", (readyClient) => {
@@ -48,6 +56,25 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
+  // Buttons & modals from the tournament dashboard / prediction panel.
+  if (interaction.isButton() || interaction.isModalSubmit()) {
+    try {
+      await routeComponent(interaction);
+    } catch (error) {
+      console.error("❌ Component interaction error:", error);
+      const payload = {
+        content: "An error occurred while handling that action.",
+        flags: MessageFlags.Ephemeral,
+      };
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(payload).catch(() => {});
+      } else if (!interaction.isModalSubmit() || !interaction.replied) {
+        await interaction.reply(payload).catch(() => {});
+      }
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const command = commands.get(interaction.commandName);
@@ -61,8 +88,12 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  // Role-based access control for management commands.
-  if (command.managerOnly && !(await isManager(interaction))) {
+  // Role-based access control for management commands (toggled via config).
+  if (
+    command.managerOnly &&
+    ENFORCE_MANAGER_ROLE &&
+    !(await isManager(interaction))
+  ) {
     return interaction.reply({
       content: `🚫 You need the **${MANAGER_ROLE}** role to use this command.`,
       flags: MessageFlags.Ephemeral,
@@ -82,6 +113,43 @@ client.on("interactionCreate", async (interaction) => {
     } else {
       await interaction.reply(payload).catch(() => {});
     }
+  }
+});
+
+/** Route a button / modal interaction by its custom_id prefix. */
+async function routeComponent(interaction) {
+  const id = interaction.customId;
+
+  if (interaction.isButton()) {
+    if (id.startsWith(MATCH_BUTTON_PREFIX)) {
+      const matchId = Number(id.slice(MATCH_BUTTON_PREFIX.length));
+      return handleMatchButton(interaction, matchId);
+    }
+    if (id.startsWith("pp:fb:")) {
+      return handleFootballScoreButton(interaction, Number(id.slice(6)));
+    }
+    if (id.startsWith("pp:ck:")) {
+      const [, , matchId, side] = id.split(":");
+      return handleCricketButton(interaction, Number(matchId), side);
+    }
+    return;
+  }
+
+  // Modal submit.
+  if (id.startsWith("pp:fbm:")) {
+    return handleFootballModal(interaction, Number(id.slice(7)));
+  }
+}
+
+// Keep tournament channels clean: only the bot's table & announcements stay.
+client.on("messageCreate", async (message) => {
+  if (!message.guild) return;
+  if (message.author?.id === client.user?.id) return;
+  if (!getTournamentByChannel(message.channelId)) return;
+  try {
+    if (message.deletable) await message.delete();
+  } catch {
+    // Missing Manage Messages permission, or the message is already gone.
   }
 });
 

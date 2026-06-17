@@ -4,6 +4,11 @@ module.exports = {
   // Role required to run management commands. Set MANAGER_ROLE in .env.
   MANAGER_ROLE: process.env.MANAGER_ROLE || "Sports_Manager",
 
+  // Whether the manager-role check is enforced. Enforced by default; set
+  // ENFORCE_MANAGER_ROLE=false in .env to let anyone run management commands
+  // (handy for testing).
+  ENFORCE_MANAGER_ROLE: process.env.ENFORCE_MANAGER_ROLE !== "false",
+
   // IANA timezone used to interpret typed/suggested match deadlines.
   // Change this to your local zone, e.g. "Europe/London", "America/New_York".
   TIMEZONE: "Asia/Dhaka",

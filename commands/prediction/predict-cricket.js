@@ -2,20 +2,14 @@
 
 const { SlashCommandBuilder } = require("discord.js");
 const {
-  db,
   getMatch,
-  ensureUser,
+  upsertPrediction,
   isMatchOpenForPredictions,
+  predictionState,
 } = require("../../db/queries");
 const { toDiscordTimestamp } = require("../../utils/time");
 const { ephemeral } = require("../../utils/embeds");
-
-const upsertPrediction = db.prepare(
-  `INSERT INTO predictions (match_id, discord_id, predicted_value, points_earned)
-   VALUES (?, ?, ?, 0)
-   ON CONFLICT(match_id, discord_id)
-   DO UPDATE SET predicted_value = excluded.predicted_value, points_earned = 0`,
-);
+const { refreshDashboard } = require("../../utils/dashboard");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -49,10 +43,13 @@ module.exports = {
       );
     }
     if (!isMatchOpenForPredictions(match)) {
+      const state = predictionState(match);
       const reason =
-        match.status !== "open"
-          ? "predictions are locked"
-          : `the deadline passed (${toDiscordTimestamp(match.end_time)})`;
+        state === "pending"
+          ? `predictions open ${toDiscordTimestamp(match.start_time)}`
+          : state === "ended"
+            ? `the deadline passed (${toDiscordTimestamp(match.end_time)})`
+            : "predictions are locked";
       return interaction.reply(
         ephemeral(`❌ Cannot predict on match \`${matchId}\` — ${reason}.`),
       );
@@ -72,14 +69,16 @@ module.exports = {
       );
     }
 
-    ensureUser(interaction.user.id);
-    upsertPrediction.run(matchId, interaction.user.id, winner);
+    upsertPrediction(matchId, interaction.user.id, winner);
 
-    return interaction.reply(
+    await interaction.reply(
       ephemeral(
         `✅ Prediction saved for **${match.team_a}** vs **${match.team_b}**: **${winner}** to win.\n` +
           `You can change it until ${toDiscordTimestamp(match.end_time)}.`,
       ),
     );
+    if (match.tournament_id) {
+      await refreshDashboard(interaction.client, match.tournament_id);
+    }
   },
 };

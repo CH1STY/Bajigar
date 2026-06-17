@@ -1,0 +1,39 @@
+{
+  "matches": [
+    {
+      "type": "football",
+      "team_a": "Argentina",
+      "team_b": "Mexico",
+      "start_time": "2026-06-19 10:00 UTC",
+      "end_time": "2026-06-19 16:00 UTC"
+    },
+    {
+      "type": "football",
+      "team_a": "France",
+      "team_b": "England",
+      "start_time": "2026-06-20 13:00 UTC",
+      "end_time": "2026-06-20 19:00 UTC"
+    },
+    {
+      "type": "football",
+      "team_a": "Brazil",
+      "team_b": "Portugal",
+      "start_time": "2026-06-21 15:00 UTC",
+      "end_time": "2026-06-21 21:00 UTC"
+    },
+    {
+      "type": "football",
+      "team_a": "Spain",
+      "team_b": "Germany",
+      "start_time": "2026-06-22 12:00 UTC",
+      "end_time": "2026-06-22 18:00 UTC"
+    },
+    {
+      "type": "football",
+      "team_a": "Netherlands",
+      "team_b": "USA",
+      "start_time": "2026-06-23 14:00 UTC",
+      "end_time": "2026-06-23 20:00 UTC"
+    }
+  ]
+}

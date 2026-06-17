@@ -9,6 +9,7 @@ const {
 const { db } = require("../../db/queries");
 const { ephemeral } = require("../../utils/embeds");
 const { announceTournamentCreated } = require("../../utils/notifications");
+const { refreshDashboard } = require("../../utils/dashboard");
 
 const insertTournament = db.prepare(
   "INSERT INTO tournaments (name, status, channel_id) VALUES (?, 'active', ?)",
@@ -45,16 +46,35 @@ module.exports = {
       );
     }
 
+    // Resolve the guild (interaction.guild can be null if it isn't cached yet).
+    let guild = interaction.guild;
+    if (!guild) {
+      try {
+        guild = await interaction.client.guilds.fetch(interaction.guildId);
+      } catch (err) {
+        console.error(
+          `❌ tournament-create: cannot access guild ${interaction.guildId}. ` +
+            "The bot is likely not a member of this server (invited with the " +
+            "'applications.commands' scope but missing the 'bot' scope). Error:",
+          err?.message ?? err,
+        );
+        guild = null;
+      }
+    }
+
     // Try to create a dedicated text channel for this tournament's matches.
     let channel = null;
     let channelWarning = "";
-    const me = interaction.guild.members.me;
-    if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    const me = guild ? await guild.members.fetchMe().catch(() => null) : null;
+    if (!guild) {
+      channelWarning =
+        "\n⚠️ I couldn't access this server to create a channel.";
+    } else if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
       channelWarning =
         "\n⚠️ I couldn't create a channel — grant me **Manage Channels** permission.";
     } else {
       try {
-        channel = await interaction.guild.channels.create({
+        channel = await guild.channels.create({
           name: toChannelName(name),
           type: ChannelType.GuildText,
           topic: `🏆 ${name} — add matches here with /match-add`,
@@ -74,6 +94,11 @@ module.exports = {
       { id: info.lastInsertRowid, name },
       channel,
     );
+
+    // Post the (empty) live matches & predictions table in the new channel.
+    if (channel) {
+      await refreshDashboard(interaction.client, info.lastInsertRowid);
+    }
 
     const channelLine = channel
       ? `\n📺 Matches channel: <#${channel.id}> (run \`/match-add\` there)`

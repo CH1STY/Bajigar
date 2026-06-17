@@ -3,6 +3,7 @@
 const { SlashCommandBuilder } = require("discord.js");
 const { db, getMatch } = require("../../db/queries");
 const { ephemeral } = require("../../utils/embeds");
+const { refreshDashboard } = require("../../utils/dashboard");
 
 const lockMatch = db.prepare(
   "UPDATE matches SET status = 'closed' WHERE id = ?",
@@ -40,10 +41,13 @@ module.exports = {
     }
 
     lockMatch.run(matchId);
-    return interaction.reply(
+    await interaction.reply(
       ephemeral(
         `🔒 Predictions locked for match \`${matchId}\` (**${match.team_a}** vs **${match.team_b}**).`,
       ),
     );
+    if (match.tournament_id) {
+      await refreshDashboard(interaction.client, match.tournament_id);
+    }
   },
 };

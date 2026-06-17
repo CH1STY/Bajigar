@@ -12,13 +12,16 @@ const {
   parseEndTime,
   toDiscordTimestamp,
   buildEndTimeSuggestions,
+  buildStartTimeSuggestions,
 } = require("../../utils/time");
 const { ephemeral } = require("../../utils/embeds");
+const { refreshDashboard } = require("../../utils/dashboard");
+const { runStartAnnouncementCheck } = require("../../utils/notifications");
 const { TIMEZONE } = require("../../config/config");
 
 const insertMatch = db.prepare(
-  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, end_time)
-   VALUES (?, ?, ?, ?, 'open', ?)`,
+  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, start_time, end_time)
+   VALUES (?, ?, ?, ?, 'open', ?, ?)`,
 );
 
 module.exports = {
@@ -46,9 +49,18 @@ module.exports = {
       o
         .setName("end_time")
         .setDescription(
-          `Deadline (${TIMEZONE}): pick a suggestion or type "tomorrow 18:00", "in 2 hours"`,
+          `Deadline (${TIMEZONE}): pick a suggestion or type "tomorrow 18:00", "in 2 hours", "17:00"`,
         )
         .setRequired(true)
+        .setAutocomplete(true),
+    )
+    .addStringOption((o) =>
+      o
+        .setName("start_time")
+        .setDescription(
+          `When predictions open (${TIMEZONE}): defaults to Now; or type "17:00", "in 1 hour"`,
+        )
+        .setRequired(false)
         .setAutocomplete(true),
     )
     .addIntegerOption((o) =>
@@ -60,13 +72,16 @@ module.exports = {
         .setRequired(false),
     ),
 
-  // Suggests deadline options as the manager types the `end_time` field.
+  // Suggests start/end time options as the manager types those fields.
   async autocomplete(interaction) {
     const focused = interaction.options.getFocused(true);
-    if (focused.name !== "end_time") {
-      return interaction.respond([]);
+    if (focused.name === "end_time") {
+      return interaction.respond(buildEndTimeSuggestions(focused.value));
     }
-    return interaction.respond(buildEndTimeSuggestions(focused.value));
+    if (focused.name === "start_time") {
+      return interaction.respond(buildStartTimeSuggestions(focused.value));
+    }
+    return interaction.respond([]);
   },
 
   async execute(interaction) {
@@ -74,6 +89,7 @@ module.exports = {
     const teamA = interaction.options.getString("team_a").trim();
     const teamB = interaction.options.getString("team_b").trim();
     const endTimeRaw = interaction.options.getString("end_time");
+    const startTimeRaw = interaction.options.getString("start_time");
     const tournamentIdOption = interaction.options.getInteger("tournament_id");
 
     // Resolve the tournament:
@@ -114,11 +130,32 @@ module.exports = {
       );
     }
 
+    // Resolve the start time. Default / "now" => null (open immediately).
+    let startTime = null;
+    if (startTimeRaw && startTimeRaw.toLowerCase() !== "now") {
+      const parsedStart = parseEndTime(startTimeRaw);
+      if (parsedStart === null) {
+        return interaction.reply(
+          ephemeral(
+            "❌ Could not understand `start_time`. Try `now`, `17:00`, or `in 1 hour`.",
+          ),
+        );
+      }
+      // Treat a start at/under the current time as "open now".
+      if (parsedStart > Date.now()) startTime = parsedStart;
+    }
+    if (startTime !== null && startTime >= endTime) {
+      return interaction.reply(
+        ephemeral("❌ `start_time` must be before `end_time`."),
+      );
+    }
+
     const info = insertMatch.run(
       tournament?.id ?? null,
       type,
       teamA,
       teamB,
+      startTime,
       endTime,
     );
 
@@ -126,12 +163,28 @@ module.exports = {
       ? `to **${tournament.name}**`
       : "as a **standalone match** (no tournament)";
 
-    return interaction.reply(
+    const opensLine = startTime
+      ? `⏳ Predictions open: ${toDiscordTimestamp(startTime)}`
+      : "▶️ Predictions open: now";
+
+    await interaction.reply(
       ephemeral(
         `✅ Match \`${info.lastInsertRowid}\` added ${context}:\n` +
           `**${teamA}** vs **${teamB}** (${type})\n` +
+          `${opensLine}\n` +
           `🔒 Predictions close: ${toDiscordTimestamp(endTime)}`,
       ),
     );
+
+    // Keep the tournament's live table in sync.
+    if (tournament) {
+      await refreshDashboard(interaction.client, tournament.id);
+    }
+
+    // Announce immediately-open matches right away (the scheduler also covers
+    // matches that open later when their start_time arrives).
+    if (!startTime) {
+      await runStartAnnouncementCheck(interaction.client);
+    }
   },
 };

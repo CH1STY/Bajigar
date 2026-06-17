@@ -2,22 +2,15 @@
 
 const { SlashCommandBuilder } = require("discord.js");
 const {
-  db,
   getMatch,
-  ensureUser,
+  upsertPrediction,
   isMatchOpenForPredictions,
+  predictionState,
 } = require("../../db/queries");
 const { normalizeFootballScore } = require("../../utils/scoring");
 const { toDiscordTimestamp } = require("../../utils/time");
 const { ephemeral } = require("../../utils/embeds");
-
-// Upsert: overwrite an existing prediction while the match is still open.
-const upsertPrediction = db.prepare(
-  `INSERT INTO predictions (match_id, discord_id, predicted_value, points_earned)
-   VALUES (?, ?, ?, 0)
-   ON CONFLICT(match_id, discord_id)
-   DO UPDATE SET predicted_value = excluded.predicted_value, points_earned = 0`,
-);
+const { refreshDashboard } = require("../../utils/dashboard");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -29,7 +22,9 @@ module.exports = {
     .addStringOption((o) =>
       o
         .setName("score")
-        .setDescription('Score in "X-Y" format, e.g. 2-1')
+        .setDescription(
+          "Goals as firstTeam-secondTeam (same order as the match), e.g. 2-1",
+        )
         .setRequired(true),
     ),
 
@@ -60,23 +55,29 @@ module.exports = {
       );
     }
     if (!isMatchOpenForPredictions(match)) {
+      const state = predictionState(match);
       const reason =
-        match.status !== "open"
-          ? "predictions are locked"
-          : `the deadline passed (${toDiscordTimestamp(match.end_time)})`;
+        state === "pending"
+          ? `predictions open ${toDiscordTimestamp(match.start_time)}`
+          : state === "ended"
+            ? `the deadline passed (${toDiscordTimestamp(match.end_time)})`
+            : "predictions are locked";
       return interaction.reply(
         ephemeral(`❌ Cannot predict on match \`${matchId}\` — ${reason}.`),
       );
     }
 
-    ensureUser(interaction.user.id);
-    upsertPrediction.run(matchId, interaction.user.id, score);
+    upsertPrediction(matchId, interaction.user.id, score);
 
-    return interaction.reply(
+    const [ga, gb] = score.split("-");
+    await interaction.reply(
       ephemeral(
-        `✅ Prediction saved for **${match.team_a}** vs **${match.team_b}**: **${score}**.\n` +
+        `✅ Prediction saved: **${match.team_a} ${ga} – ${gb} ${match.team_b}** (\`${score}\`).\n` +
           `You can change it until ${toDiscordTimestamp(match.end_time)}.`,
       ),
     );
+    if (match.tournament_id) {
+      await refreshDashboard(interaction.client, match.tournament_id);
+    }
   },
 };

@@ -25,10 +25,11 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS tournaments (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT NOT NULL,
-    status     TEXT NOT NULL DEFAULT 'active', -- active | completed
-    channel_id TEXT                            -- dedicated Discord text channel
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                 TEXT NOT NULL,
+    status               TEXT NOT NULL DEFAULT 'active', -- active | completed
+    channel_id           TEXT,  -- dedicated Discord text channel
+    dashboard_message_id TEXT   -- the live matches/predictions table message
   );
 
   CREATE TABLE IF NOT EXISTS matches (
@@ -38,9 +39,11 @@ db.exec(`
     team_a        TEXT NOT NULL,
     team_b        TEXT NOT NULL,
     status        TEXT NOT NULL DEFAULT 'open', -- open | closed | resolved
+    start_time    INTEGER,                  -- epoch ms predictions open (NULL = immediately)
     end_time      INTEGER NOT NULL,         -- epoch milliseconds
     result        TEXT,                     -- "X-Y" score or winning team name
     reminded      INTEGER NOT NULL DEFAULT 0, -- 1 once the closing-soon alert was sent
+    start_announced INTEGER NOT NULL DEFAULT 0, -- 1 once the "predictions open" alert was sent
     FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
   );
 
@@ -50,6 +53,7 @@ db.exec(`
     discord_id      TEXT NOT NULL,
     predicted_value TEXT NOT NULL,          -- "X-Y" score or team name
     points_earned   REAL NOT NULL DEFAULT 0,
+    updated_at      INTEGER NOT NULL DEFAULT 0, -- epoch ms of last change
     UNIQUE (match_id, discord_id),
     FOREIGN KEY (match_id)   REFERENCES matches(id)   ON DELETE CASCADE,
     FOREIGN KEY (discord_id) REFERENCES users(discord_id) ON DELETE CASCADE
@@ -63,6 +67,9 @@ const tournamentColumns = db
   .map((c) => c.name);
 if (!tournamentColumns.includes("channel_id")) {
   db.exec("ALTER TABLE tournaments ADD COLUMN channel_id TEXT");
+}
+if (!tournamentColumns.includes("dashboard_message_id")) {
+  db.exec("ALTER TABLE tournaments ADD COLUMN dashboard_message_id TEXT");
 }
 
 // Allow standalone matches: drop the NOT NULL constraint on matches.tournament_id.
@@ -108,6 +115,25 @@ const matchColumns = db
   .map((c) => c.name);
 if (!matchColumns.includes("reminded")) {
   db.exec("ALTER TABLE matches ADD COLUMN reminded INTEGER NOT NULL DEFAULT 0");
+}
+if (!matchColumns.includes("start_time")) {
+  db.exec("ALTER TABLE matches ADD COLUMN start_time INTEGER");
+}
+if (!matchColumns.includes("start_announced")) {
+  db.exec(
+    "ALTER TABLE matches ADD COLUMN start_announced INTEGER NOT NULL DEFAULT 0",
+  );
+}
+
+// Track when each prediction was last set/changed (for the dashboard).
+const predictionColumns = db
+  .prepare("PRAGMA table_info(predictions)")
+  .all()
+  .map((c) => c.name);
+if (!predictionColumns.includes("updated_at")) {
+  db.exec(
+    "ALTER TABLE predictions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+  );
 }
 
 module.exports = db;
