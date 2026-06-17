@@ -1,0 +1,113 @@
+// SQLite database initialization & schema.
+// Uses Node's built-in node:sqlite module (no native build step required).
+
+const path = require("path");
+const fs = require("fs");
+const { DatabaseSync } = require("node:sqlite");
+
+// Keep the database file inside a dedicated data/ directory.
+const dataDir = path.join(__dirname, "..", "data");
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const db = new DatabaseSync(path.join(dataDir, "sports.db"));
+
+// Pragmas for reliability & relational integrity.
+db.exec("PRAGMA journal_mode = WAL");
+db.exec("PRAGMA foreign_keys = ON");
+
+// --- Schema -----------------------------------------------------------------
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    discord_id    TEXT PRIMARY KEY,
+    global_points REAL NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS tournaments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'active', -- active | completed
+    channel_id TEXT                            -- dedicated Discord text channel
+  );
+
+  CREATE TABLE IF NOT EXISTS matches (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER,                  -- NULL for standalone matches
+    type          TEXT NOT NULL,            -- football | cricket
+    team_a        TEXT NOT NULL,
+    team_b        TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'open', -- open | closed | resolved
+    end_time      INTEGER NOT NULL,         -- epoch milliseconds
+    result        TEXT,                     -- "X-Y" score or winning team name
+    reminded      INTEGER NOT NULL DEFAULT 0, -- 1 once the closing-soon alert was sent
+    FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS predictions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id        INTEGER NOT NULL,
+    discord_id      TEXT NOT NULL,
+    predicted_value TEXT NOT NULL,          -- "X-Y" score or team name
+    points_earned   REAL NOT NULL DEFAULT 0,
+    UNIQUE (match_id, discord_id),
+    FOREIGN KEY (match_id)   REFERENCES matches(id)   ON DELETE CASCADE,
+    FOREIGN KEY (discord_id) REFERENCES users(discord_id) ON DELETE CASCADE
+  );
+`);
+
+// --- Lightweight migrations (for databases created before a column existed) --
+const tournamentColumns = db
+  .prepare("PRAGMA table_info(tournaments)")
+  .all()
+  .map((c) => c.name);
+if (!tournamentColumns.includes("channel_id")) {
+  db.exec("ALTER TABLE tournaments ADD COLUMN channel_id TEXT");
+}
+
+// Allow standalone matches: drop the NOT NULL constraint on matches.tournament_id.
+// SQLite can't ALTER a column's nullability, so rebuild the table when needed.
+const matchTournamentCol = db
+  .prepare("PRAGMA table_info(matches)")
+  .all()
+  .find((c) => c.name === "tournament_id");
+if (matchTournamentCol && matchTournamentCol.notnull === 1) {
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      CREATE TABLE matches_new (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        tournament_id INTEGER,
+        type          TEXT NOT NULL,
+        team_a        TEXT NOT NULL,
+        team_b        TEXT NOT NULL,
+        status        TEXT NOT NULL DEFAULT 'open',
+        end_time      INTEGER NOT NULL,
+        result        TEXT,
+        FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
+      );
+      INSERT INTO matches_new
+        SELECT id, tournament_id, type, team_a, team_b, status, end_time, result
+        FROM matches;
+      DROP TABLE matches;
+      ALTER TABLE matches_new RENAME TO matches;
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  db.exec("PRAGMA foreign_keys = ON");
+}
+
+// Add the "reminded" flag used by the closing-soon notifier.
+const matchColumns = db
+  .prepare("PRAGMA table_info(matches)")
+  .all()
+  .map((c) => c.name);
+if (!matchColumns.includes("reminded")) {
+  db.exec("ALTER TABLE matches ADD COLUMN reminded INTEGER NOT NULL DEFAULT 0");
+}
+
+module.exports = db;

@@ -24,4 +24,7 @@ Thumbs.db
 logs/
 *.log
 
+# SQLite database (generated at runtime)
+data/
+
 .env

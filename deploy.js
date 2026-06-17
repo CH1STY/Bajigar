@@ -1,6 +1,7 @@
 require("dotenv").config();
 
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { REST, Routes } = require("discord.js");
+const { loadCommands } = require("./utils/commandLoader");
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
@@ -14,12 +15,7 @@ const rest = new REST({ version: "10" }).setToken(token);
 
 async function deploy() {
   try {
-    const commands = [
-      new SlashCommandBuilder()
-        .setName("time")
-        .setDescription("Show the current server time")
-        .toJSON(),
-    ];
+    const commands = [...loadCommands().values()].map((c) => c.data.toJSON());
 
     console.log(`🔄 Deploying ${commands.length} slash command(s) globally...`);
 
