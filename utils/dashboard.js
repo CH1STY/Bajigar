@@ -63,13 +63,13 @@ function sortMatches(matches) {
 
 // Plain-text (no emoji) state label so it stays aligned inside a code block.
 const STATE_TEXT = {
-  resolved: "Resolved",
+  resolved: "Res",
   open: "Open",
-  pending: "Upcoming",
-  closed: "Closed",
+  pending: "Next",
+  closed: "Cls",
 };
 
-const MAX_TEAMS_WIDTH = 26; // keep the table from getting too wide on mobile
+const MAX_TEAMS_WIDTH = 26; // team names total width for 43 char row limit
 
 /** Truncate a string to a max length with an ellipsis. */
 function clip(s, max) {
@@ -84,34 +84,36 @@ function buildMatchTable(matches, counts) {
     return {
       id: `#${m.id}`,
       teams: clip(`${m.team_a} v ${m.team_b}`, MAX_TEAMS_WIDTH),
-      type: m.type === "cricket" ? "Cricket" : "Football",
+      type: m.type === "cricket" ? "C" : "F",
       status: STATE_TEXT[key] ?? "Closed",
       result: resolved ? (m.result ?? "?") : "—",
       predictions: String(counts.get(m.id) ?? 0),
     };
   });
 
-  const headers = {
-    id: "ID",
-    teams: "Match",
-    type: "Type",
-    status: "Status",
-    result: "Result",
-    predictions: "Predictions",
+  // Fixed column widths to ensure proper alignment (total 43 chars per row)
+  const width = {
+    id: 2,
+    teams: 26,
+    type: 1,
+    status: 5,
+    result: 2,
+    predictions: 2,
   };
+
+  const headers = {
+    id: "#",
+    teams: "Match",
+    type: "T",
+    status: "Stat",
+    result: "R",
+    predictions: "P",
+  };
+
   const cols = ["id", "teams", "type", "status", "result", "predictions"];
-  const width = {};
-  for (const c of cols) {
-    width[c] = Math.max(headers[c].length, ...rows.map((r) => r[c].length));
-  }
+  const line = (cells) => cols.map((c) => cells[c].padEnd(width[c])).join(" ");
 
-  const line = (cells) =>
-    cols
-      .map((c) => cells[c].padEnd(width[c]))
-      .join("  ")
-      .trimEnd();
-
-  const sep = cols.map((c) => "─".repeat(width[c])).join("──");
+  const sep = cols.map((c) => "─".repeat(width[c])).join(" ");
   return [line(headers), sep, ...rows.map(line)].join("\n");
 }
 
