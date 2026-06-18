@@ -8,24 +8,28 @@ scoring and leaderboards. Data is stored in SQLite via Node's built-in
 ## Quick Start
 
 ### Prerequisites
+
 - Node.js 22.5+ (required for built-in `node:sqlite` module)
 - A Discord bot token and client ID from [Discord Developer Portal](https://discord.com/developers/applications)
 
 ### Installation & Running
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/CH1STY/Bajigar.git
    cd Bajigar
    ```
 
 2. **Install dependencies:**
+
    ```bash
    npm install
    ```
 
 3. **Configure `.env`:**
    Create or update `.env` with your Discord credentials:
+
    ```env
    DISCORD_TOKEN=your_bot_token_here
    CLIENT_ID=your_client_id_here
@@ -35,10 +39,11 @@ scoring and leaderboards. Data is stored in SQLite via Node's built-in
    ```
 
 4. **Deploy commands & start the bot:**
+
    ```bash
    npm start
    ```
-   
+
    Or separately:
    - Deploy commands: `npm run deploy`
    - Start bot: `node bot.js`
@@ -52,18 +57,28 @@ The bot displays a **live matches & predictions table** in each tournament chann
 The table is automatically updated when matches or predictions change.
 
 **Table Features:**
+
 - Shows 10 most relevant matches (active matches first)
 - Compact design optimized for Discord mobile display (43 characters max per row)
-- Columns: ID | Match (50 chars) | Type (C/F) | Status | Result | Predictions
+- Columns: ID | Match (teams) | Type (F/C) | Status | Result | Predictions
 - Interactive buttons for open matches allow users to predict directly
-- Status indicators: Open | Upcoming | Closed | Resolved
+- Status indicators: Open (accepting predictions) | Next (opens soon) | Cls (closed) | Res (result published)
+- **Legend:** All columns have a legend row explaining abbreviations:
+  - `#` = Match ID
+  - `Match` = Team A vs Team B
+  - `T` = Type (F = Football, C = Cricket)
+  - `Stat` = Status with meanings (Open/Next/Cls/Res)
+  - `R` = Result (match score or winning team)
+  - `P` = Total Predictions Made
 
 **Team Name Cleanup:**
-The bot automatically strips emojis and special characters from team names. 
+The bot automatically strips emojis and special characters from team names.
 If you have existing matches with emoji flags or symbols, run:
+
 ```bash
 node scripts/cleanup-team-names.js
 ```
+
 This cleans the database and ensures team names display properly in the compact table.
 
 ## Roles & Permissions
@@ -92,6 +107,7 @@ Notifications are posted to the tournament's channel when available, otherwise t
 notifications on standalone matches.
 
 **Configuration:** Edit timing constants in `config/config.js`:
+
 - `REMINDER_CHECK_INTERVAL_MS` — how often to check for closing matches
 - `REMINDER_LEAD_MS` — minutes before deadline to alert
 
@@ -124,9 +140,11 @@ commands/
   management/                # Manager-only commands
     tournament-create.js     # Create tournaments & channels
     match-add.js             # Add individual matches
+    match-timing.js          # Edit match start/end times
     match-import.js          # Bulk import matches from JSON
     match-resolve.js         # Score matches & calculate points
     prediction-lock.js       # Manually lock predictions
+    dashboard-refresh.js     # Manually refresh tournament dashboard
   prediction/                # User prediction commands
     predict-football.js      # Predict football scores
     predict-cricket.js       # Predict cricket winners
@@ -147,6 +165,7 @@ data/
 ```
 
 **Database Tables:**
+
 - `users` — Discord user IDs and global points
 - `tournaments` — Tournament names, channels, dashboard message IDs
 - `matches` — Match data (teams, type, times, status, scores)
@@ -159,7 +178,7 @@ data/
 - `/tournament-create [name]` — Create a tournament (e.g., `WC 2026`)
   - Automatically creates a dedicated text channel
   - Posts an announcement to the announcement channel
-  
+
 - `/match-add [type] [team_a] [team_b] [end_time] [start_time?] [tournament_id?]`
   - `type`: `football` or `cricket`
   - `end_time`: Deadline for predictions (required)
@@ -170,6 +189,13 @@ data/
     - Specific date: `2026-06-20 18:00`, `2026-06-20 18:00 UTC`
     - Unix timestamp or ISO format accepted
     - Default timezone: `Asia/Dhaka` (set in `config/config.js`)
+
+- `/match-timing [match_id] [start_time?] [end_time?]`
+  - Edit the start and/or end time of an existing match
+  - Leave a field blank to keep it unchanged
+  - Supports the same time format as `/match-add`
+  - Smart validation: ensures start time is before end time
+  - Automatically refreshes the dashboard and sends predictions-open announcement if applicable
 
 - `/match-import [file?] [json?] [tournament_id?]`
   - Bulk-add matches from JSON (up to 100 per import)
@@ -183,12 +209,18 @@ data/
     - Football: `2-1` (score)
     - Cricket: Team name (e.g., `Pakistan`)
 
+- `/dashboard-refresh [tournament_id?]`
+  - Manually refresh the tournament's live dashboard
+  - `tournament_id` is optional; if omitted, uses the current channel's tournament
+  - Useful if the dashboard becomes out of sync or needs a manual refresh
+
 ### Predictions (everyone)
 
 - `/predict-football [match_id] [score]` — Predict a score (e.g., `2-1`, `0-0`)
 - `/predict-cricket [match_id] [winner]` — Predict the winning team
 
 **Notes:**
+
 - Predictions only accepted while match is **open** and before **end_time**
 - Users can overwrite their prediction until the deadline
 - Dashboard shows active (open) matches with prediction buttons
@@ -205,32 +237,38 @@ data/
 ## Scoring System
 
 **Football:**
+
 - Exact score match → 10 points
 - Off by 1 goal total (e.g., predicted 2-1, actual 1-1) → 2.5 points
 - No match → 0 points
 
 **Cricket:**
+
 - Correct winning team → 10 points
 - Wrong team → 0 points
 
 ## Troubleshooting
 
 ### Bot won't start
+
 - Check `DISCORD_TOKEN` and `CLIENT_ID` in `.env` are valid
 - Ensure Node.js 22.5+ is installed: `node --version`
 - Run `npm install` to ensure dependencies are installed
 
 ### Commands not showing up
+
 - Run `npm run deploy` to register commands
 - Bot must have permission to create slash commands in the guild
 - You may need to restart the bot after registering new commands
 
 ### Table alignment issues in Discord
+
 - Team names are truncated at 26 characters; longer names display with "…"
 - Table is optimized for 43 characters per row for mobile display
 - Run `node scripts/cleanup-team-names.js` if emoji flags appear
 
 ### Database issues
+
 - Database file (`data/sports.db`) is auto-created on first run
 - To reset: delete `data/sports.db` and restart the bot
 - Ensure `data/` folder has write permissions
@@ -238,6 +276,7 @@ data/
 ## Contributing
 
 To add new commands:
+
 1. Create a file in `commands/{category}/`
 2. Export `{ data: SlashCommandBuilder, execute: async function }`
 3. Optionally include `managerOnly: true` to restrict to Sports_Manager role

@@ -23,6 +23,7 @@ const MATCH_BUTTON_PREFIX = "dash:m:";
 const TYPE_EMOJI = { football: "⚽", cricket: "🏏" };
 const MAX_BUTTONS = 25; // 5 rows × 5 buttons (Discord limit)
 const DASHBOARD_LIMIT = 10; // most time-relevant matches shown on the table
+const MAX_TEAMS_WIDTH = 22; // team names total width for 43 char row limit
 
 /** Is the match currently accepting predictions? */
 function isActive(match) {
@@ -69,8 +70,6 @@ const STATE_TEXT = {
   closed: "Cls",
 };
 
-const MAX_TEAMS_WIDTH = 26; // team names total width for 43 char row limit
-
 /** Truncate a string to a max length with an ellipsis. */
 function clip(s, max) {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
@@ -93,11 +92,11 @@ function buildMatchTable(matches, counts) {
 
   // Fixed column widths to ensure proper alignment (total 43 chars per row)
   const width = {
-    id: 2,
-    teams: 26,
+    id: 3,
+    teams: 22,
     type: 1,
     status: 5,
-    result: 2,
+    result: 4,
     predictions: 2,
   };
 
@@ -135,6 +134,9 @@ function buildDashboardEmbed(tournament, matches, counts, totalMatches) {
   // The aligned table (code block keeps columns lined up everywhere).
   let table = buildMatchTable(matches, counts);
 
+  // Compact legend to explain table columns (goes at the top)
+  const legend = `**Legend:** # = ID | Match = Teams | T = Type (F=Football/C=Cricket) | Stat = Status (Open=accepting predictions / Next=opens soon / Cls=closed / Res=result published) | R = Result | P = Total Predictions Made`;
+
   // Timestamps don't render inside code blocks, so list the actionable
   // open/upcoming deadlines underneath where they render as live times.
   const timing = matches
@@ -158,12 +160,19 @@ function buildDashboardEmbed(tournament, matches, counts, totalMatches) {
   const fence = "```\n";
   const closeFence = "\n```";
   const extras = (timing.length ? "\n\n" + timing.join("\n") : "") + moreNote;
-  const budget = 4096 - fence.length - closeFence.length - extras.length - 16;
+  const budget =
+    4096 -
+    legend.length -
+    fence.length -
+    closeFence.length -
+    extras.length -
+    20;
   if (table.length > budget) table = table.slice(0, budget) + "\n… (more)";
 
-  embed.setDescription(fence + table + closeFence + extras);
+  embed.setDescription(legend + "\n" + fence + table + closeFence + extras);
+
   embed.setFooter({
-    text: "Tap a match button below to predict. Predictions = how many people have predicted so far.",
+    text: "Tap a match button below to predict.",
   });
   return embed;
 }
@@ -214,52 +223,97 @@ async function resolveChannel(client, id) {
  * @param {number} tournamentId
  */
 async function refreshDashboard(client, tournamentId) {
-  const tournament = getTournament(tournamentId);
-  if (!tournament || !tournament.channel_id) return;
-
-  const channel = await resolveChannel(client, tournament.channel_id);
-  if (!channel) return;
-
-  const allMatches = sortMatches(getTournamentMatches(tournamentId));
-  const matches = allMatches.slice(0, DASHBOARD_LIMIT);
-  const counts = getPredictionCounts(tournamentId);
-  const payload = {
-    embeds: [
-      buildDashboardEmbed(tournament, matches, counts, allMatches.length),
-    ],
-    components: buildDashboardComponents(matches),
-  };
-
-  // Edit the existing message when we can; otherwise post a fresh one.
-  const existingId = tournament.dashboard_message_id;
-
-  // Keep the dashboard as the newest message so nobody has to scroll up.
-  // If it's already the last message in the channel, edit it in place;
-  // otherwise delete the old one and re-post it at the bottom.
-  if (existingId) {
-    try {
-      const recent = await channel.messages.fetch({ limit: 1 });
-      const last = recent.first();
-      if (last && last.id === existingId) {
-        await last.edit(payload);
-        return;
-      }
-    } catch {
-      // Couldn't read recent history — fall through and re-post.
-    }
-    try {
-      const old = await channel.messages.fetch(existingId);
-      await old.delete();
-    } catch {
-      // Already gone — nothing to remove.
-    }
-  }
-
   try {
-    const msg = await channel.send(payload);
-    setDashboardMessageId(tournamentId, msg.id);
+    const tournament = getTournament(tournamentId);
+    if (!tournament) {
+      console.warn(
+        `⚠️ Dashboard refresh: Tournament ${tournamentId} not found`,
+      );
+      return;
+    }
+
+    if (!tournament.channel_id) {
+      console.warn(
+        `⚠️ Dashboard refresh: Tournament ${tournamentId} (${tournament.name}) has no channel_id`,
+      );
+      return;
+    }
+
+    const channel = await resolveChannel(client, tournament.channel_id);
+    if (!channel) {
+      console.warn(
+        `⚠️ Dashboard refresh: Cannot access channel ${tournament.channel_id} for tournament ${tournamentId}`,
+      );
+      return;
+    }
+
+    const allMatches = sortMatches(getTournamentMatches(tournamentId));
+    const matches = allMatches.slice(0, DASHBOARD_LIMIT);
+    const counts = getPredictionCounts(tournamentId);
+    const payload = {
+      embeds: [
+        buildDashboardEmbed(tournament, matches, counts, allMatches.length),
+      ],
+      components: buildDashboardComponents(matches),
+    };
+
+    // Edit the existing message when we can; otherwise post a fresh one.
+    const existingId = tournament.dashboard_message_id;
+
+    // Keep the dashboard as the newest message so nobody has to scroll up.
+    // If it's already the last message in the channel, edit it in place;
+    // otherwise delete the old one and re-post it at the bottom.
+    if (existingId) {
+      try {
+        const recent = await channel.messages.fetch({ limit: 1 });
+        const last = recent.first();
+        if (last && last.id === existingId) {
+          await last.edit(payload);
+          console.log(
+            `✅ Dashboard refreshed (edited) for tournament ${tournamentId}`,
+          );
+          return;
+        }
+      } catch (err) {
+        // Couldn't read recent history — fall through and re-post.
+        console.log(
+          `ℹ️ Could not edit dashboard message (will re-post): ${err.message}`,
+        );
+      }
+
+      // Try to delete the old message if it exists
+      try {
+        const old = await channel.messages.fetch(existingId);
+        await old.delete();
+        console.log(
+          `ℹ️ Deleted old dashboard message ${existingId} for tournament ${tournamentId}`,
+        );
+      } catch (err) {
+        // Already gone or inaccessible — nothing to remove.
+        console.log(
+          `ℹ️ Old dashboard message ${existingId} already gone or inaccessible`,
+        );
+      }
+    }
+
+    // Post a fresh message
+    try {
+      const msg = await channel.send(payload);
+      setDashboardMessageId(tournamentId, msg.id);
+      console.log(
+        `✅ Dashboard posted (new) for tournament ${tournamentId} (message ${msg.id})`,
+      );
+    } catch (err) {
+      console.error(
+        `❌ Failed to post tournament dashboard for ${tournamentId}:`,
+        err.message,
+      );
+    }
   } catch (err) {
-    console.error("❌ Failed to post tournament dashboard:", err);
+    console.error(
+      `❌ Unexpected error in refreshDashboard for tournament ${tournamentId}:`,
+      err,
+    );
   }
 }
 

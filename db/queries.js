@@ -223,6 +223,25 @@ function transaction(fn) {
   }
 }
 
+// Update match start and/or end times
+const updateMatchTimesStmt = db.prepare(`
+  UPDATE matches
+  SET start_time = ?, end_time = ?
+  WHERE id = ?
+`);
+
+/**
+ * Update a match's start and end times. Both values are written directly,
+ * so the caller must pass the desired final values (use the existing value
+ * for any field that should stay unchanged).
+ * @param {number} matchId
+ * @param {number|null} newStartTime - epoch ms, or null to open immediately
+ * @param {number} newEndTime - epoch ms deadline
+ */
+function updateMatchTimes(matchId, newStartTime, newEndTime) {
+  updateMatchTimesStmt.run(newStartTime, newEndTime, matchId);
+}
+
 module.exports = {
   db,
   ensureUser,
@@ -243,4 +262,5 @@ module.exports = {
   predictionState,
   transaction,
   getUserPredictions,
+  updateMatchTimes,
 };
