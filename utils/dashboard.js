@@ -172,7 +172,7 @@ function buildDashboardEmbed(tournament, matches, counts, totalMatches) {
   embed.setDescription(legend + "\n" + fence + table + closeFence + extras);
 
   embed.setFooter({
-    text: "Tap a match button below to predict.",
+    text: "Tap a match button below to predict. • All times are GMT +6 (Bangladesh Standard Time)",
   });
   return embed;
 }
