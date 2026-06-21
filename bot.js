@@ -12,6 +12,11 @@ const {
   handleFootballModal,
   handleCricketButton,
 } = require("./utils/predictionPanel");
+const {
+  startPaginationCleanup,
+  handlePaginationButton,
+  getPaginationData,
+} = require("./utils/pagination");
 const { MANAGER_ROLE, ENFORCE_MANAGER_ROLE } = require("./config/config");
 
 const token = process.env.DISCORD_TOKEN;
@@ -34,6 +39,8 @@ client.once("clientReady", (readyClient) => {
   console.log(`✅ Logged in as ${readyClient.user.tag}`);
   // Start the recurring "predictions closing soon" notifier.
   startReminderScheduler(readyClient);
+  // Start pagination cleanup.
+  startPaginationCleanup();
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -121,6 +128,222 @@ async function routeComponent(interaction) {
   const id = interaction.customId;
 
   if (interaction.isButton()) {
+    // Pagination buttons for my-predictions
+    if (id.startsWith("mp:")) {
+      const parts = id.split(":");
+      const action = parts[2]; // "prev" or "next"
+      const page = Number(parts[3]);
+      const { getPaginationData } = require("./utils/pagination");
+      const { getUserPredictions, predictionState } = require("./db/queries");
+      const { toDiscordTimestamp } = require("./utils/time");
+      const { buildPaginatedResponse } = require("./utils/pagination");
+      const { EmbedBuilder } = require("discord.js");
+
+      const TYPE_EMOJI = { football: "⚽", cricket: "🏏" };
+      const STATE_TAG = {
+        resolved: "✅ Resolved",
+        open: "🟢 Open",
+        pending: "🕒 Upcoming",
+        ended: "🔒 Closed",
+        locked: "🔒 Closed",
+        missing: "❔ Unknown",
+      };
+
+      const cachedData = getPaginationData(`mp:${interaction.user.id}`);
+      if (!cachedData) {
+        const rows = getUserPredictions(interaction.user.id);
+        if (rows.length === 0) {
+          return interaction.reply({
+            content: "No predictions to display.",
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+      }
+
+      const rows = cachedData || getUserPredictions(interaction.user.id);
+      let totalPoints = 0;
+      let resolvedCount = 0;
+      rows.forEach((r) => {
+        if (predictionState(r) === "resolved") {
+          resolvedCount += 1;
+          totalPoints += r.points_earned;
+        }
+      });
+
+      const nextPage = action === "next" ? page + 1 : Math.max(1, page - 1);
+      const ITEMS_PER_PAGE = 5;
+
+      const { embed, components } = buildPaginatedResponse({
+        sessionKey: `mp:${interaction.user.id}`,
+        items: rows,
+        itemsPerPage: ITEMS_PER_PAGE,
+        page: nextPage,
+        formatItems: (pageItems) => {
+          const blocks = pageItems.map((r) => {
+            const state = predictionState(r);
+            const emoji = TYPE_EMOJI[r.type] ?? "🎯";
+            const tag = STATE_TAG[state] ?? "❔";
+            const where = r.tournament_name ? ` · ${r.tournament_name}` : "";
+
+            let outcome;
+            if (state === "resolved") {
+              const hit = r.points_earned > 0;
+              outcome =
+                `result: **${r.result ?? "?"}** · ` +
+                (hit ? `🏅 **+${r.points_earned}** pts` : "❌ 0 pts");
+            } else {
+              outcome = `closes ${toDiscordTimestamp(r.end_time)}`;
+            }
+
+            return (
+              `**#${r.match_id} ${emoji} ${r.team_a} 🆚 ${r.team_b}**${where}\n` +
+              `> ${tag} · your pick: \`${r.predicted_value}\`\n` +
+              `> ${outcome}`
+            );
+          });
+          return blocks.join("\n\n");
+        },
+        buildEmbed: (description, currentPage, totalPages) => {
+          const summary = `📊 **Total: ${totalPoints} pts earned** · ${resolvedCount} resolved\n\n`;
+          const embed = new EmbedBuilder()
+            .setTitle("🗒️ Your Predictions")
+            .setColor(0x2ecc71)
+            .setDescription(summary + description)
+            .setFooter({
+              text: `${rows.length} prediction${rows.length === 1 ? "" : "s"} • Page ${currentPage}/${totalPages}`,
+            })
+            .setTimestamp();
+          return embed;
+        },
+      });
+
+      return interaction.update({ embeds: [embed], components });
+    }
+
+    // Pagination buttons for leaderboard-global
+    if (id.startsWith("lg:")) {
+      const parts = id.split(":");
+      const action = parts[1]; // "prev" or "next"
+      const page = Number(parts[2]);
+      const { db } = require("./db/queries");
+      const { buildPaginatedResponse } = require("./utils/pagination");
+      const { EmbedBuilder } = require("discord.js");
+
+      const topUsers = db.prepare(
+        `SELECT discord_id, global_points AS points
+         FROM users
+         WHERE global_points > 0
+         ORDER BY global_points DESC`,
+      );
+
+      const rows = topUsers.all();
+      if (rows.length === 0) {
+        return interaction.reply({
+          content: "No scores recorded yet.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const nextPage = action === "next" ? page + 1 : Math.max(1, page - 1);
+      const ITEMS_PER_PAGE = 10;
+
+      const { embed, components } = buildPaginatedResponse({
+        sessionKey: "lg",
+        items: rows,
+        itemsPerPage: ITEMS_PER_PAGE,
+        page: nextPage,
+        formatItems: (pageItems) => {
+          const medals = ["🥇", "🥈", "🥉"];
+          const lines = pageItems.map((row, i) => {
+            const fullIndex = rows.indexOf(row);
+            const rank = medals[fullIndex] ?? `**${fullIndex + 1}.**`;
+            return `${rank} <@${row.discord_id}> — **${row.points}** pts`;
+          });
+          return lines.join("\n");
+        },
+        buildEmbed: (description, currentPage, totalPages) => {
+          const embed = new EmbedBuilder()
+            .setTitle("🌍 Global Leaderboard")
+            .setColor(0xf1c40f)
+            .setDescription(description)
+            .setFooter({
+              text: `${rows.length} user${rows.length === 1 ? "" : "s"} · Page ${currentPage}/${totalPages}`,
+            });
+          return embed;
+        },
+      });
+
+      return interaction.update({ embeds: [embed], components });
+    }
+
+    // Pagination buttons for leaderboard-tournament
+    if (id.startsWith("lt:")) {
+      const parts = id.split(":");
+      const tournamentId = Number(parts[1]);
+      const action = parts[2]; // "prev" or "next"
+      const page = Number(parts[3]);
+      const { db, getTournament } = require("./db/queries");
+      const { buildPaginatedResponse } = require("./utils/pagination");
+      const { EmbedBuilder } = require("discord.js");
+
+      const tournament = getTournament(tournamentId);
+      if (!tournament) {
+        return interaction.reply({
+          content: `❌ No tournament found with ID \`${tournamentId}\`.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const tournamentTop = db.prepare(
+        `SELECT p.discord_id AS discord_id, SUM(p.points_earned) AS points
+         FROM predictions p
+         JOIN matches m ON m.id = p.match_id
+         WHERE m.tournament_id = ?
+         GROUP BY p.discord_id
+         HAVING points > 0
+         ORDER BY points DESC`,
+      );
+
+      const rows = tournamentTop.all(tournamentId);
+      if (rows.length === 0) {
+        return interaction.reply({
+          content: "No scores recorded yet.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const nextPage = action === "next" ? page + 1 : Math.max(1, page - 1);
+      const ITEMS_PER_PAGE = 10;
+
+      const { embed, components } = buildPaginatedResponse({
+        sessionKey: `lt:${tournamentId}`,
+        items: rows,
+        itemsPerPage: ITEMS_PER_PAGE,
+        page: nextPage,
+        formatItems: (pageItems) => {
+          const medals = ["🥇", "🥈", "🥉"];
+          const lines = pageItems.map((row, i) => {
+            const fullIndex = rows.indexOf(row);
+            const rank = medals[fullIndex] ?? `**${fullIndex + 1}.**`;
+            return `${rank} <@${row.discord_id}> — **${row.points}** pts`;
+          });
+          return lines.join("\n");
+        },
+        buildEmbed: (description, currentPage, totalPages) => {
+          const embed = new EmbedBuilder()
+            .setTitle(`🏆 ${tournament.name} — Leaderboard`)
+            .setColor(0xf1c40f)
+            .setDescription(description)
+            .setFooter({
+              text: `${rows.length} user${rows.length === 1 ? "" : "s"} · Page ${currentPage}/${totalPages}`,
+            });
+          return embed;
+        },
+      });
+
+      return interaction.update({ embeds: [embed], components });
+    }
+
     if (id.startsWith(MATCH_BUTTON_PREFIX)) {
       const matchId = Number(id.slice(MATCH_BUTTON_PREFIX.length));
       return handleMatchButton(interaction, matchId);

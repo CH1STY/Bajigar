@@ -9,9 +9,10 @@ const {
 } = require("discord.js");
 const { getUserPredictions, predictionState } = require("../../db/queries");
 const { toDiscordTimestamp } = require("../../utils/time");
+const { buildPaginatedResponse } = require("../../utils/pagination");
 
 const TYPE_EMOJI = { football: "⚽", cricket: "🏏" };
-const MAX_ROWS = 25;
+const ITEMS_PER_PAGE = 5;
 
 const STATE_TAG = {
   resolved: "✅ Resolved",
@@ -30,61 +31,80 @@ module.exports = {
   async execute(interaction) {
     const rows = getUserPredictions(interaction.user.id);
 
-    const embed = new EmbedBuilder()
-      .setTitle("🗒️ Your Predictions")
-      .setColor(0x2ecc71)
-      .setTimestamp();
-
     if (rows.length === 0) {
-      embed.setDescription(
-        "You haven't made any predictions yet. Use `/predict-football`, " +
-          "`/predict-cricket`, or tap a match on a tournament dashboard.",
-      );
+      const embed = new EmbedBuilder()
+        .setTitle("🗒️ Your Predictions")
+        .setColor(0x2ecc71)
+        .setDescription(
+          "You haven't made any predictions yet. Use `/predict-football`, " +
+            "`/predict-cricket`, or tap a match on a tournament dashboard.",
+        )
+        .setTimestamp();
       return interaction.reply({
         embeds: [embed],
         flags: MessageFlags.Ephemeral,
       });
     }
 
+    // Calculate totals from all predictions
     let totalPoints = 0;
     let resolvedCount = 0;
-
-    const blocks = rows.slice(0, MAX_ROWS).map((r) => {
-      const state = predictionState(r);
-      const emoji = TYPE_EMOJI[r.type] ?? "🎯";
-      const tag = STATE_TAG[state] ?? "❔";
-      const where = r.tournament_name ? ` · ${r.tournament_name}` : "";
-
-      let outcome;
-      if (state === "resolved") {
+    rows.forEach((r) => {
+      if (predictionState(r) === "resolved") {
         resolvedCount += 1;
         totalPoints += r.points_earned;
-        const hit = r.points_earned > 0;
-        outcome =
-          `result: **${r.result ?? "?"}** · ` +
-          (hit ? `🏅 **+${r.points_earned}** pts` : "❌ 0 pts");
-      } else {
-        outcome = `closes ${toDiscordTimestamp(r.end_time)}`;
       }
-
-      return (
-        `**#${r.match_id} ${emoji} ${r.team_a} 🆚 ${r.team_b}**${where}\n` +
-        `> ${tag} · your pick: \`${r.predicted_value}\`\n` +
-        `> ${outcome}`
-      );
     });
 
-    if (rows.length > MAX_ROWS) {
-      blocks.push(`…and ${rows.length - MAX_ROWS} more.`);
-    }
+    const sessionKey = `mp:${interaction.user.id}`;
 
-    embed.setDescription(blocks.join("\n\n"));
-    embed.setFooter({
-      text: `${rows.length} prediction${rows.length === 1 ? "" : "s"} · ${resolvedCount} resolved · ${totalPoints} pts earned`,
+    const { embed, components } = buildPaginatedResponse({
+      sessionKey,
+      items: rows,
+      itemsPerPage: ITEMS_PER_PAGE,
+      page: 1,
+      formatItems: (pageItems) => {
+        const blocks = pageItems.map((r) => {
+          const state = predictionState(r);
+          const emoji = TYPE_EMOJI[r.type] ?? "🎯";
+          const tag = STATE_TAG[state] ?? "❔";
+          const where = r.tournament_name ? ` · ${r.tournament_name}` : "";
+
+          let outcome;
+          if (state === "resolved") {
+            const hit = r.points_earned > 0;
+            outcome =
+              `result: **${r.result ?? "?"}** · ` +
+              (hit ? `🏅 **+${r.points_earned}** pts` : "❌ 0 pts");
+          } else {
+            outcome = `closes ${toDiscordTimestamp(r.end_time)}`;
+          }
+
+          return (
+            `**#${r.match_id} ${emoji} ${r.team_a} 🆚 ${r.team_b}**${where}\n` +
+            `> ${tag} · your pick: \`${r.predicted_value}\`\n` +
+            `> ${outcome}`
+          );
+        });
+        return blocks.join("\n\n");
+      },
+      buildEmbed: (description, currentPage, totalPages) => {
+        const summary = `📊 **Total: ${totalPoints} pts earned** · ${resolvedCount} resolved\n\n`;
+        const embed = new EmbedBuilder()
+          .setTitle("🗒️ Your Predictions")
+          .setColor(0x2ecc71)
+          .setDescription(summary + description)
+          .setFooter({
+            text: `${rows.length} prediction${rows.length === 1 ? "" : "s"} • Page ${currentPage}/${totalPages}`,
+          })
+          .setTimestamp();
+        return embed;
+      },
     });
 
     return interaction.reply({
       embeds: [embed],
+      components: components || [],
       flags: MessageFlags.Ephemeral,
     });
   },
