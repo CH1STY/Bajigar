@@ -29,7 +29,7 @@ module.exports = {
       return interaction.reply({ embeds: [embed] });
     }
 
-    const sessionKey = "lg";
+    const sessionKey = `lg:${interaction.user.id}`;
 
     const { embed, components } = buildPaginatedResponse({
       sessionKey,

@@ -48,7 +48,7 @@ module.exports = {
       return interaction.reply({ embeds: [embed] });
     }
 
-    const sessionKey = `lt:${tournamentId}`;
+    const sessionKey = `lt:${tournamentId}:${interaction.user.id}`;
 
     const { embed, components } = buildPaginatedResponse({
       sessionKey,

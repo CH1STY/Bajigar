@@ -223,23 +223,19 @@ async function routeComponent(interaction) {
     // Pagination buttons for leaderboard-global
     if (id.startsWith("lg:")) {
       const parts = id.split(":");
-      const action = parts[1]; // "prev" or "next"
-      const page = Number(parts[2]);
-      const { db } = require("./db/queries");
+      const userId = parts[1];
+      const action = parts[2]; // "prev" or "next"
+      const page = Number(parts[3]);
+      const { getPaginationData } = require("./utils/pagination");
       const { buildPaginatedResponse } = require("./utils/pagination");
       const { EmbedBuilder } = require("discord.js");
 
-      const topUsers = db.prepare(
-        `SELECT discord_id, global_points AS points
-         FROM users
-         WHERE global_points > 0
-         ORDER BY global_points DESC`,
-      );
-
-      const rows = topUsers.all();
-      if (rows.length === 0) {
+      // Use cached data (don't re-query database)
+      const rows = getPaginationData(`lg:${userId}`);
+      if (!rows) {
         return interaction.reply({
-          content: "No scores recorded yet.",
+          content:
+            "Pagination session expired. Please run `/leaderboard-global` again.",
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -248,7 +244,7 @@ async function routeComponent(interaction) {
       const ITEMS_PER_PAGE = 10;
 
       const { embed, components } = buildPaginatedResponse({
-        sessionKey: "lg",
+        sessionKey: `lg:${userId}`,
         items: rows,
         itemsPerPage: ITEMS_PER_PAGE,
         page: nextPage,
@@ -280,9 +276,11 @@ async function routeComponent(interaction) {
     if (id.startsWith("lt:")) {
       const parts = id.split(":");
       const tournamentId = Number(parts[1]);
-      const action = parts[2]; // "prev" or "next"
-      const page = Number(parts[3]);
-      const { db, getTournament } = require("./db/queries");
+      const userId = parts[2];
+      const action = parts[3]; // "prev" or "next"
+      const page = Number(parts[4]);
+      const { getTournament } = require("./db/queries");
+      const { getPaginationData } = require("./utils/pagination");
       const { buildPaginatedResponse } = require("./utils/pagination");
       const { EmbedBuilder } = require("discord.js");
 
@@ -294,20 +292,12 @@ async function routeComponent(interaction) {
         });
       }
 
-      const tournamentTop = db.prepare(
-        `SELECT p.discord_id AS discord_id, SUM(p.points_earned) AS points
-         FROM predictions p
-         JOIN matches m ON m.id = p.match_id
-         WHERE m.tournament_id = ?
-         GROUP BY p.discord_id
-         HAVING points > 0
-         ORDER BY points DESC`,
-      );
-
-      const rows = tournamentTop.all(tournamentId);
-      if (rows.length === 0) {
+      // Use cached data (don't re-query database)
+      const rows = getPaginationData(`lt:${tournamentId}:${userId}`);
+      if (!rows) {
         return interaction.reply({
-          content: "No scores recorded yet.",
+          content:
+            "Pagination session expired. Please run `/leaderboard-tournament` again.",
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -316,7 +306,7 @@ async function routeComponent(interaction) {
       const ITEMS_PER_PAGE = 10;
 
       const { embed, components } = buildPaginatedResponse({
-        sessionKey: `lt:${tournamentId}`,
+        sessionKey: `lt:${tournamentId}:${userId}`,
         items: rows,
         itemsPerPage: ITEMS_PER_PAGE,
         page: nextPage,
