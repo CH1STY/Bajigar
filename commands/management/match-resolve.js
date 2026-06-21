@@ -88,9 +88,16 @@ module.exports = {
         ephemeral(`❌ No match found with ID \`${matchId}\`.`),
       );
     }
-    if (match.status === "resolved") {
+    if (
+      match.status !== "resolved" &&
+      match.status !== "open" &&
+      match.status !== "upcoming" &&
+      match.status !== "closed"
+    ) {
       return interaction.reply(
-        ephemeral(`❌ Match \`${matchId}\` has already been resolved.`),
+        ephemeral(
+          `❌ Cannot resolve match \`${matchId}\` — status is \`${match.status}\`.`,
+        ),
       );
     }
 
@@ -123,9 +130,12 @@ module.exports = {
 
     const { total, awarded } = resolveMatch(match, result);
 
+    const isResolve = match.status === "resolved";
+    const action = isResolve ? "Re-resolved" : "Resolved";
+
     await interaction.reply(
       ephemeral(
-        `🏁 Match \`${matchId}\` resolved — result: **${result}**.\n` +
+        `🏁 Match \`${matchId}\` ${action.toLowerCase()} — result: **${result}**.\n` +
           `Scored **${total}** prediction(s); **${awarded}** earned points.`,
       ),
     );
