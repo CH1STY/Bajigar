@@ -23,7 +23,7 @@ const getPredictions = db.prepare(
 const getMatchTopEarners = db.prepare(
   `SELECT discord_id, points_earned FROM predictions
    WHERE match_id = ? AND points_earned > 0
-   ORDER BY points_earned DESC LIMIT 3`,
+   ORDER BY points_earned DESC LIMIT 20`,
 );
 const updatePrediction = db.prepare(
   "UPDATE predictions SET points_earned = ? WHERE id = ?",

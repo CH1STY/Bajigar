@@ -31,6 +31,7 @@ module.exports = {
     football: {
       exact: 10, // Predicted score exactly matches the result.
       near: 2.5, // Total goal difference from the actual result is exactly 1.
+      outcome: 5, // Correct winner or draw (right result, wrong score).
     },
     cricket: {
       correct: 10, // Correct winning team.

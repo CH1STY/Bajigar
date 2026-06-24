@@ -24,10 +24,23 @@ function normalizeFootballScore(value) {
 }
 
 /**
+ * Determine the outcome of a parsed score: home win, away win, or draw.
+ * @param {{ a: number, b: number }} score
+ * @returns {'home'|'away'|'draw'}
+ */
+function footballOutcome({ a, b }) {
+  if (a > b) return "home";
+  if (a < b) return "away";
+  return "draw";
+}
+
+/**
  * Score a football prediction against the actual result.
- *  - Exact score        -> SCORING.football.exact
- *  - Total goal diff = 1 -> SCORING.football.near
- *  - Otherwise          -> 0
+ * Rewards stack:
+ *  - Correct winner/draw  -> SCORING.football.outcome
+ *  - Exact score          -> SCORING.football.exact (added on top of outcome)
+ *  - Total goal diff = 1   -> SCORING.football.near (added on top of outcome)
+ *  - Otherwise            -> 0
  *
  * @param {string} predicted "X-Y"
  * @param {string} result    "X-Y"
@@ -38,10 +51,19 @@ function scoreFootball(predicted, result) {
   const r = parseFootballScore(result);
   if (!p || !r) return 0;
 
+  let points = 0;
+  if (footballOutcome(p) === footballOutcome(r)) {
+    points += SCORING.football.outcome;
+  }
+
   const totalDiff = Math.abs(p.a - r.a) + Math.abs(p.b - r.b);
-  if (totalDiff === 0) return SCORING.football.exact;
-  if (totalDiff === 1) return SCORING.football.near;
-  return 0;
+  if (totalDiff === 0) {
+    points += SCORING.football.exact;
+  } else if (totalDiff === 1) {
+    points += SCORING.football.near;
+  }
+
+  return points;
 }
 
 /**
