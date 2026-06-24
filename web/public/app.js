@@ -89,17 +89,7 @@ function blockHTML(p) {
     </section>
     <section class="card">
       <h2>Players</h2>
-      <div class="table-wrap">
-        <table id="${p}-players-table">
-          <thead>
-            <tr>
-              <th>#</th><th>Player</th><th>Points</th><th>Predictions</th>
-              <th>Graded</th><th>Avg Goal Diff</th><th>Exact</th><th>Near</th><th>Hits</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
+      <div class="table-wrap" id="${p}-players-table"></div>
     </section>`;
 }
 
@@ -361,28 +351,140 @@ function renderSpotlight(bodyId, player, kind) {
 }
 
 function renderPlayers(p, rows) {
-  const tbody = document.querySelector(`#${p}-players-table tbody`);
-  tbody.innerHTML = "";
-  if (!rows.length) {
-    tbody.innerHTML =
-      '<tr><td colspan="9" class="empty">No players yet.</td></tr>';
-    return;
+  const container = document.getElementById(`${p}-players-table`);
+  container.innerHTML = "";
+  const columns = [
+    {
+      label: "#",
+      numeric: true,
+      value: (r) => r.rank,
+      render: (r) => rankMedal(r.rank),
+    },
+    { label: "Player", value: (r) => r.name, render: (r) => esc(r.name) },
+    {
+      label: "Points",
+      numeric: true,
+      value: (r) => r.points,
+      render: (r) => `<strong>${r.points}</strong>`,
+    },
+    {
+      label: "Predictions",
+      numeric: true,
+      value: (r) => r.predictions,
+      render: (r) => r.predictions,
+    },
+    {
+      label: "Graded",
+      numeric: true,
+      value: (r) => r.gradedGames,
+      render: (r) => r.gradedGames,
+    },
+    {
+      label: "Avg Goal Diff",
+      numeric: true,
+      value: (r) => r.avgDiff,
+      render: (r) => (r.avgDiff == null ? "—" : r.avgDiff),
+    },
+    {
+      label: "Exact",
+      numeric: true,
+      value: (r) => r.exact,
+      render: (r) => r.exact,
+    },
+    {
+      label: "Near",
+      numeric: true,
+      value: (r) => r.near,
+      render: (r) => r.near,
+    },
+    {
+      label: "Hits",
+      numeric: true,
+      value: (r) => r.hits,
+      render: (r) => (r.hits == null ? 0 : r.hits),
+    },
+  ];
+  container.append(
+    sortableTable(rows, columns, {
+      className: "data-table players-table",
+      rowClass: (r) => (r.rank && r.rank <= 3 ? "top-rank" : ""),
+      emptyText: "No players yet.",
+    }),
+  );
+}
+
+/**
+ * Build a table whose columns can be sorted client-side. Sorting happens
+ * entirely in the browser on the already-loaded `rows` (no server call). The
+ * initial order is preserved until a header is clicked.
+ */
+function sortableTable(rows, columns, opts = {}) {
+  const table = document.createElement("table");
+  if (opts.className) table.className = opts.className;
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  columns.forEach((col, i) => {
+    const th = document.createElement("th");
+    th.textContent = col.label;
+    th.classList.add("sortable");
+    th.addEventListener("click", () => applySort(i));
+    headRow.append(th);
+  });
+  thead.append(headRow);
+  table.append(thead);
+
+  const tbody = document.createElement("tbody");
+  table.append(tbody);
+
+  const headers = headRow.querySelectorAll("th");
+  let view = rows.slice();
+  let sortIdx = null;
+  let dir = 1; // 1 = ascending, -1 = descending
+
+  function renderBody() {
+    tbody.innerHTML = "";
+    if (!view.length) {
+      tbody.innerHTML = `<tr><td colspan="${columns.length}" class="empty">${opts.emptyText || "No data."}</td></tr>`;
+      return;
+    }
+    for (const r of view) {
+      const tr = document.createElement("tr");
+      const cls = opts.rowClass ? opts.rowClass(r) : "";
+      if (cls) tr.className = cls;
+      tr.innerHTML = columns.map((col) => `<td>${col.render(r)}</td>`).join("");
+      tbody.append(tr);
+    }
   }
-  for (const r of rows) {
-    const tr = document.createElement("tr");
-    if (r.rank && r.rank <= 3) tr.className = "top-rank";
-    tr.innerHTML = `
-      <td>${rankMedal(r.rank)}</td>
-      <td>${esc(r.name)}</td>
-      <td><strong>${r.points}</strong></td>
-      <td>${r.predictions}</td>
-      <td>${r.gradedGames}</td>
-      <td>${r.avgDiff == null ? "—" : r.avgDiff}</td>
-      <td>${r.exact}</td>
-      <td>${r.near}</td>
-      <td>${r.hits == null ? 0 : r.hits}</td>`;
-    tbody.append(tr);
+
+  function applySort(i) {
+    const col = columns[i];
+    if (sortIdx === i) {
+      dir = -dir;
+    } else {
+      sortIdx = i;
+      dir = col.numeric ? -1 : 1; // numbers high→low first, text A→Z first
+    }
+    view = rows.slice().sort((a, b) => {
+      const av = col.value(a);
+      const bv = col.value(b);
+      const an = av == null;
+      const bn = bv == null;
+      if (an && bn) return 0;
+      if (an) return 1; // nulls always last
+      if (bn) return -1;
+      const cmp = col.numeric ? av - bv : String(av).localeCompare(String(bv));
+      return cmp * dir;
+    });
+    headers.forEach((th, idx) => {
+      th.classList.toggle("sort-asc", idx === sortIdx && dir === 1);
+      th.classList.toggle("sort-desc", idx === sortIdx && dir === -1);
+    });
+    renderBody();
   }
+
+  renderBody();
+  return table;
 }
 
 function rankMedal(rank) {
@@ -520,24 +622,40 @@ function renderStandings(container, t) {
     container.innerHTML = '<div class="empty">No predictions yet.</div>';
     return;
   }
-  const table = document.createElement("table");
-  table.className = "standings-table";
-  table.innerHTML =
-    "<thead><tr><th>#</th><th>Player</th><th>Points</th><th>Predictions</th><th>Hits</th></tr></thead>";
-  const tbody = document.createElement("tbody");
-  for (const r of t.players) {
-    const tr = document.createElement("tr");
-    if (r.rank <= 3) tr.className = "top-rank";
-    tr.innerHTML = `
-      <td>${rankMedal(r.rank)}</td>
-      <td>${esc(r.name)}</td>
-      <td><strong>${r.points}</strong></td>
-      <td>${r.predictions}</td>
-      <td>${r.hits == null ? 0 : r.hits}</td>`;
-    tbody.append(tr);
-  }
-  table.append(tbody);
-  container.append(table);
+  const columns = [
+    {
+      label: "#",
+      numeric: true,
+      value: (r) => r.rank,
+      render: (r) => rankMedal(r.rank),
+    },
+    { label: "Player", value: (r) => r.name, render: (r) => esc(r.name) },
+    {
+      label: "Points",
+      numeric: true,
+      value: (r) => r.points,
+      render: (r) => `<strong>${r.points}</strong>`,
+    },
+    {
+      label: "Predictions",
+      numeric: true,
+      value: (r) => r.predictions,
+      render: (r) => r.predictions,
+    },
+    {
+      label: "Hits",
+      numeric: true,
+      value: (r) => r.hits,
+      render: (r) => (r.hits == null ? 0 : r.hits),
+    },
+  ];
+  container.append(
+    sortableTable(t.players, columns, {
+      className: "data-table standings-table",
+      rowClass: (r) => (r.rank <= 3 ? "top-rank" : ""),
+      emptyText: "No predictions yet.",
+    }),
+  );
 }
 
 /* ---- Tab switching ---- */

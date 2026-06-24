@@ -209,29 +209,65 @@ canvas {
   overflow-x: auto;
 }
 
-table#players-table {
+table.data-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
 
-#players-table th,
-#players-table td {
+.data-table th,
+.data-table td {
   padding: 9px 12px;
   text-align: left;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 
-#players-table th {
+.data-table th {
   color: var(--muted);
   font-weight: 500;
   position: sticky;
   top: 0;
+  background: var(--panel);
 }
 
-#players-table tbody tr:hover {
+.data-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.data-table th.sortable:hover {
+  color: var(--text);
+}
+
+.data-table th.sortable::after {
+  content: "⇅";
+  display: inline-block;
+  width: 1em;
+  margin-left: 6px;
+  font-size: 10px;
+  text-align: center;
+  opacity: 0.35;
+}
+
+.data-table th.sort-asc::after {
+  content: "↑";
+  opacity: 1;
+  color: var(--accent);
+}
+
+.data-table th.sort-desc::after {
+  content: "↓";
+  opacity: 1;
+  color: var(--accent);
+}
+
+.data-table tbody tr:hover {
   background: var(--panel-2);
+}
+
+.data-table tr.top-rank td {
+  background: rgba(155, 89, 182, 0.06);
 }
 
 .pill {
