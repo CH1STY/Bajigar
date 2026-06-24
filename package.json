@@ -4,8 +4,10 @@
   "description": "Simple Discord bot",
   "main": "bot.js",
   "scripts": {
-    "start": "node deploy.js && node bot.js",
-    "deploy": "node deploy.js"
+    "start": "node start-all.js",
+    "bot": "node deploy.js && node bot.js",
+    "deploy": "node deploy.js",
+    "web": "node web/server.js"
   },
   "dependencies": {
     "discord.js": "^14.26.4",

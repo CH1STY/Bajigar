@@ -17,6 +17,11 @@ module.exports = {
   // alerts for standalone matches). Set ANNOUNCEMENT_CHANNEL_ID in .env.
   ANNOUNCEMENT_CHANNEL_ID: process.env.ANNOUNCEMENT_CHANNEL_ID || null,
 
+  // Web dashboard: tournament selected by default in the Tournaments dropdown.
+  // Set WEB_DEFAULT_TOURNAMENT in .env to a tournament id (e.g. "2") or its
+  // name (e.g. "World Cup 2026", case-insensitive). Empty = first tournament.
+  WEB_DEFAULT_TOURNAMENT: process.env.WEB_DEFAULT_TOURNAMENT || null,
+
   // How long before a match deadline to send the "closing soon" alert.
   REMINDER_LEAD_MS: 30 * 60 * 1000, // 30 minutes
 

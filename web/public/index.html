@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bajigar — Brotherhood Predictions Analytics</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏆</text></svg>"
+    />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">🏆</span>
+        <div>
+          <h1>Bajigar Analytics</h1>
+          <p class="sub">
+            Brotherhood · sports predictions — trends, accuracy &amp;
+            near-misses
+          </p>
+        </div>
+      </div>
+      <div class="actions">
+        <span id="updated" class="updated"></span>
+        <button id="refresh" class="btn">Refresh</button>
+      </div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab" data-tab="overview">Overview</button>
+      <button class="tab active" data-tab="tournaments">Tournaments</button>
+    </nav>
+
+    <main id="app">
+      <section id="tab-overview" class="tab-panel">
+        <div id="ov-block"></div>
+      </section>
+
+      <section id="tab-tournaments" class="tab-panel active">
+        <div class="tournament-picker">
+          <label for="tn-select">Tournament</label>
+          <select id="tn-select"></select>
+          <span id="tn-status" class="pill"></span>
+        </div>
+        <section id="tournament-kpis" class="kpi-grid"></section>
+        <div class="banner" id="tournament-empty"></div>
+        <section class="card-grid">
+          <div class="card wide">
+            <h2>
+              Tournament Leaders
+              <span class="hint">top players in this tournament</span>
+            </h2>
+            <div id="tournament-podium" class="podium"></div>
+          </div>
+        </section>
+        <div id="tn-block"></div>
+        <section class="card">
+          <h2>Standings <span class="hint">current top first</span></h2>
+          <div class="table-wrap" id="tn-standings"></div>
+        </section>
+      </section>
+    </main>
+
+    <footer class="foot">
+      Bajigar · Brotherhood — read-only analytics · predictions stay hidden
+      until a match closes.
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
