@@ -1169,9 +1169,11 @@ document.querySelectorAll(".tab").forEach((tab) => {
 document.querySelectorAll(".subtab").forEach((subtab) => {
   subtab.addEventListener("click", () => {
     const target = subtab.dataset.subtab;
-    document
-      .querySelectorAll(".subtab")
-      .forEach((s) => s.classList.toggle("active", s === subtab));
+    document.querySelectorAll(".subtab").forEach((s) => {
+      const on = s === subtab;
+      s.classList.toggle("active", on);
+      s.setAttribute("aria-selected", on ? "true" : "false");
+    });
     document.querySelectorAll(".subtab-panel").forEach((panel) => {
       panel.classList.toggle("active", panel.id === `tn-sub-${target}`);
     });

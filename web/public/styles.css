@@ -342,30 +342,58 @@ table.data-table {
 
 .subtabs {
   display: flex;
-  gap: 6px;
-  margin: 0 0 18px;
-  border-bottom: 1px solid var(--line);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 22px;
+  padding: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
 }
 
 .subtab {
-  background: transparent;
-  border: 0;
-  color: var(--muted);
-  font-size: 13px;
-  padding: 9px 16px;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 14px 16px;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  border-radius: 9px;
+  text-align: center;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.05s ease;
+}
+
+.subtab .subtab-icon {
+  font-size: 17px;
+  line-height: 1;
 }
 
 .subtab:hover {
-  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(155, 89, 182, 0.12);
+}
+
+.subtab:active {
+  transform: translateY(1px);
 }
 
 .subtab.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 2px 12px rgba(155, 89, 182, 0.4);
 }
 
 .subtab-panel {
@@ -374,6 +402,12 @@ table.data-table {
 
 .subtab-panel.active {
   display: block;
+}
+
+@media (max-width: 560px) {
+  .subtab .subtab-text {
+    font-size: 13px;
+  }
 }
 
 /* ---- Tournaments ---- */

@@ -46,11 +46,30 @@
         </div>
         <section id="tournament-kpis" class="kpi-grid"></section>
         <div class="banner" id="tournament-empty"></div>
-        <nav class="subtabs" id="tn-subtabs">
-          <button class="subtab active" data-subtab="predictions">
-            Prediction Analytics
+        <nav
+          class="subtabs"
+          id="tn-subtabs"
+          role="tablist"
+          aria-label="Analytics view"
+        >
+          <button
+            class="subtab active"
+            data-subtab="predictions"
+            role="tab"
+            aria-selected="true"
+          >
+            <span class="subtab-icon">📊</span>
+            <span class="subtab-text">Prediction Analytics</span>
           </button>
-          <button class="subtab" data-subtab="teams">Team Standings</button>
+          <button
+            class="subtab"
+            data-subtab="teams"
+            role="tab"
+            aria-selected="false"
+          >
+            <span class="subtab-icon">🏆</span>
+            <span class="subtab-text">Team Standings</span>
+          </button>
         </nav>
         <div id="tn-sub-predictions" class="subtab-panel active">
           <section class="card-grid">
