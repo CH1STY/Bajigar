@@ -77,6 +77,26 @@ function blockHTML(p) {
         <canvas id="${p}-chart-scorelines"></canvas>
       </div>
     </section>
+    <section class="card wide">
+      <h2>Match Explorer <span class="hint">search by team, click a match for predictions &amp; analysis</span></h2>
+      <div class="match-explorer-controls">
+        <input type="search" id="${p}-match-search" class="match-search" placeholder="🔎 Search by team…" autocomplete="off" />
+      </div>
+      <div class="match-columns">
+        <div class="match-col">
+          <h3 class="match-col-head open">Open <span class="col-count" id="${p}-col-open-count">0</span></h3>
+          <div class="match-list" id="${p}-col-open"></div>
+        </div>
+        <div class="match-col">
+          <h3 class="match-col-head upcoming">Upcoming <span class="col-count" id="${p}-col-upcoming-count">0</span></h3>
+          <div class="match-list" id="${p}-col-upcoming"></div>
+        </div>
+        <div class="match-col">
+          <h3 class="match-col-head resolved">Resolved <span class="col-count" id="${p}-col-resolved-count">0</span></h3>
+          <div class="match-list" id="${p}-col-resolved"></div>
+        </div>
+      </div>
+    </section>
     <section class="card-grid">
       <div class="card">
         <h2>🎯 Sharpest Predictor</h2>
@@ -137,6 +157,7 @@ function renderBlock(p, block) {
   renderSpotlight(`${p}-best-body`, block.bestPredictor, "lowest");
   renderSpotlight(`${p}-worst-body`, block.worstPredictor, "highest");
   renderPlayers(p, block.players);
+  renderMatchExplorer(p, block.matchList || []);
 }
 
 function renderKpis(p, o) {
@@ -413,6 +434,229 @@ function renderPlayers(p, rows) {
   );
 }
 
+/* ---- Match explorer (team search + open / upcoming / resolved + modal) ---- */
+
+const MATCH_STATE_LABEL = {
+  open: "Open",
+  pending: "Upcoming",
+  closed: "Closed",
+  locked: "Locked",
+  ended: "Closed",
+  resolved: "Resolved",
+  missing: "—",
+};
+
+function matchTypeIcon(type) {
+  return type === "football" ? "⚽" : "🏏";
+}
+
+function fmtTime(epoch) {
+  if (!epoch) return null;
+  const d = new Date(Number(epoch));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// Per-prefix cache of the match list so team search can re-filter client-side.
+const matchExplorerData = {};
+
+function matchBucket(m) {
+  if (m.state === "open") return "open";
+  if (m.state === "pending") return "upcoming";
+  return "resolved";
+}
+
+function renderMatchExplorer(p, matches) {
+  matchExplorerData[p] = matches || [];
+  const search = document.getElementById(`${p}-match-search`);
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", () => drawMatchColumns(p));
+  }
+  drawMatchColumns(p);
+}
+
+function drawMatchColumns(p) {
+  const matches = matchExplorerData[p] || [];
+  const search = document.getElementById(`${p}-match-search`);
+  const q = (search ? search.value : "").trim().toLowerCase();
+  const filtered = q
+    ? matches.filter((m) => `${m.teamA} ${m.teamB}`.toLowerCase().includes(q))
+    : matches;
+
+  const buckets = { open: [], upcoming: [], resolved: [] };
+  for (const m of filtered) buckets[matchBucket(m)].push(m);
+  renderMatchColumn(p, "open", buckets.open);
+  renderMatchColumn(p, "upcoming", buckets.upcoming);
+  renderMatchColumn(p, "resolved", buckets.resolved);
+}
+
+function renderMatchColumn(p, key, matches) {
+  const listEl = document.getElementById(`${p}-col-${key}`);
+  const countEl = document.getElementById(`${p}-col-${key}-count`);
+  if (!listEl) return;
+  if (countEl) countEl.textContent = matches.length;
+  listEl.innerHTML = "";
+  if (!matches.length) {
+    listEl.innerHTML = '<div class="empty small">None</div>';
+    return;
+  }
+  for (const m of matches) {
+    const item = el("button", { className: "match-item", type: "button" });
+    item.innerHTML = `
+      <span class="mi-id">#${m.id}</span>
+      <span class="mi-teams">${esc(m.teamA)} <em>v</em> ${esc(m.teamB)}</span>
+      <span class="mi-meta">
+        <span class="mi-type" title="${esc(m.type)}">${matchTypeIcon(m.type)}</span>
+        ${m.result ? `<span class="mi-result">${esc(m.result)}</span>` : ""}
+        <span class="mi-picks">${m.predictionCount} pick${m.predictionCount === 1 ? "" : "s"}</span>
+      </span>`;
+    item.addEventListener("click", () => openMatchModal(m));
+    listEl.append(item);
+  }
+}
+
+function openMatchModal(m) {
+  const overlay = document.getElementById("match-modal");
+  const body = document.getElementById("match-modal-body");
+  if (!overlay || !body) return;
+  renderMatchDetail(body, m, "modal-match-dist");
+  overlay.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeMatchModal() {
+  const overlay = document.getElementById("match-modal");
+  if (!overlay || overlay.hidden) return;
+  destroy("modal-match-dist");
+  overlay.hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function renderMatchDetail(container, m, chartId) {
+  if (!container) return;
+  destroy(chartId);
+  container.innerHTML = "";
+
+  const head = el("div", { className: "md-head" });
+  const opens = fmtTime(m.startTime);
+  const closes = fmtTime(m.endTime);
+  head.innerHTML = `
+    <div class="md-title">${esc(m.teamA)} <span class="md-v">v</span> ${esc(m.teamB)}</div>
+    <div class="md-sub">
+      <span class="mi-type">${matchTypeIcon(m.type)} ${esc(m.type === "football" ? "Football" : "Cricket")}</span>
+      <span class="mi-state state-${esc(m.state)}">${esc(MATCH_STATE_LABEL[m.state] || m.state)}</span>
+      ${
+        m.result
+          ? `<span class="md-result">Result: <strong>${esc(m.result)}</strong></span>`
+          : `<span class="md-result muted">No result yet</span>`
+      }
+    </div>
+    ${
+      opens || closes
+        ? `<div class="md-times">${opens ? `Opens ${esc(opens)}` : ""}${opens && closes ? " · " : ""}${closes ? `Closes ${esc(closes)}` : ""}</div>`
+        : ""
+    }`;
+  container.append(head);
+
+  if (!m.revealed) {
+    container.append(
+      el("div", {
+        className: "banner show",
+        textContent: `🔒 ${m.predictionCount} prediction(s) hidden until this match closes.`,
+      }),
+    );
+    return;
+  }
+
+  if (!m.predictionCount) {
+    container.append(
+      el("div", {
+        className: "empty",
+        textContent: "No predictions for this match.",
+      }),
+    );
+    return;
+  }
+
+  // Distribution chart (predicted scorelines / team picks).
+  if (m.distribution && m.distribution.length) {
+    const chartCard = el("div", { className: "md-chart" });
+    chartCard.append(
+      el("h3", {
+        textContent:
+          m.type === "football" ? "Predicted Scorelines" : "Team Picks",
+      }),
+    );
+    chartCard.append(el("canvas", { id: chartId }));
+    container.append(chartCard);
+    barChart(
+      chartId,
+      m.distribution.map((d) => d.label),
+      m.distribution.map((d) => d.count),
+      "Picks",
+    );
+  }
+
+  // Per-prediction table.
+  const resolved = m.status === "resolved" && !!m.result;
+  const isFootball = m.type === "football";
+  const columns = [
+    { label: "Player", value: (r) => r.name, render: (r) => esc(r.name) },
+    {
+      label: "Pick",
+      value: (r) => r.value,
+      render: (r) => `<strong>${esc(r.value)}</strong>`,
+    },
+  ];
+  if (resolved && isFootball) {
+    columns.push({
+      label: "Goal Diff",
+      numeric: true,
+      value: (r) => r.diff,
+      render: (r) =>
+        r.diff == null
+          ? "—"
+          : `<span class="${r.diff === 0 ? "diff-good" : "diff-bad"}">${r.diff}</span>`,
+    });
+  }
+  if (resolved) {
+    columns.push({
+      label: "Outcome",
+      value: (r) => (r.correct ? 0 : r.outcomeHit ? 1 : 2),
+      render: (r) => {
+        if (r.correct) return '<span class="tag tag-good">✅ Exact</span>';
+        if (isFootball && r.outcomeHit)
+          return '<span class="tag tag-mid">Right side</span>';
+        return '<span class="tag tag-bad">Missed</span>';
+      },
+    });
+    columns.push({
+      label: "Points",
+      numeric: true,
+      value: (r) => r.points,
+      render: (r) => `<strong>${r.points}</strong>`,
+    });
+  }
+  container.append(
+    el("h3", {
+      className: "md-section",
+      textContent: `Predictions (${m.predictions.length})`,
+    }),
+  );
+  container.append(
+    sortableTable(m.predictions, columns, {
+      className: "data-table match-preds-table",
+      emptyText: "No predictions for this match.",
+    }),
+  );
+}
+
 /**
  * Build a table whose columns can be sorted client-side. Sorting happens
  * entirely in the browser on the already-loaded `rows` (no server call). The
@@ -669,6 +913,18 @@ document.querySelectorAll(".tab").forEach((tab) => {
       panel.classList.toggle("active", panel.id === `tab-${target}`);
     });
   });
+});
+
+/* ---- Match detail modal wiring ---- */
+document
+  .getElementById("match-modal-close")
+  .addEventListener("click", closeMatchModal);
+document.getElementById("match-modal").addEventListener("click", (e) => {
+  // Close when clicking the backdrop (outside the dialog panel).
+  if (e.target.id === "match-modal") closeMatchModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMatchModal();
 });
 
 document.getElementById("refresh").addEventListener("click", load);

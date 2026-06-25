@@ -268,6 +268,86 @@ function computeBlock(matches, allPredictions, name) {
 
   const leader = players[0] || null;
 
+  // ---- Per-match explorer (list + per-match predictions / results / analysis) ----
+  const predsByMatch = new Map();
+  for (const p of predictions) {
+    if (!predsByMatch.has(p.match_id)) predsByMatch.set(p.match_id, []);
+    predsByMatch.get(p.match_id).push(p);
+  }
+
+  const matchList = [...matches]
+    .sort((a, b) => (b.end_time || 0) - (a.end_time || 0) || b.id - a.id)
+    .map((m) => {
+      const mPreds = predsByMatch.get(m.id) || [];
+      const revealedNow = predictionsRevealed(m);
+      const state = predictionState(m);
+      const isFootball = m.type === "football";
+
+      // Per-prediction rows are only exposed once the match has closed.
+      let predRows = [];
+      if (revealedNow) {
+        predRows = mPreds
+          .map((p) => {
+            const row = {
+              id: p.discord_id,
+              name: name(p.discord_id),
+              value: p.predicted_value,
+              points: +p.points_earned,
+              correct: null,
+            };
+            if (m.status === "resolved" && m.result) {
+              if (isFootball) {
+                const diff = totalGoalDiff(p.predicted_value, m.result);
+                row.diff = diff;
+                row.correct = diff === 0;
+                row.outcomeHit =
+                  outcomeOf(p.predicted_value) === outcomeOf(m.result);
+              } else {
+                row.correct =
+                  String(p.predicted_value).trim().toLowerCase() ===
+                  String(m.result).trim().toLowerCase();
+              }
+            }
+            return row;
+          })
+          .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
+      }
+
+      // Pick distribution (revealed only): scoreline for football, team for cricket.
+      const distMap = new Map();
+      if (revealedNow) {
+        for (const p of mPreds) {
+          let key = null;
+          if (isFootball) {
+            const c = parseFootballScore(p.predicted_value);
+            if (c) key = `${c.a}-${c.b}`;
+          } else {
+            key = String(p.predicted_value).trim();
+          }
+          if (key) distMap.set(key, (distMap.get(key) || 0) + 1);
+        }
+      }
+      const distribution = [...distMap.entries()]
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count);
+
+      return {
+        id: m.id,
+        type: m.type,
+        teamA: m.team_a,
+        teamB: m.team_b,
+        status: m.status,
+        result: m.result || null,
+        startTime: m.start_time || null,
+        endTime: m.end_time || null,
+        state,
+        revealed: revealedNow,
+        predictionCount: mPreds.length,
+        predictions: predRows,
+        distribution,
+      };
+    });
+
   return {
     overview,
     topScorers,
@@ -280,6 +360,7 @@ function computeBlock(matches, allPredictions, name) {
     nearMisses,
     players,
     leader,
+    matchList,
   };
 }
 
