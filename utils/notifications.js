@@ -64,7 +64,7 @@ function closingSoonEmbed(match) {
     .setTitle("⏰ Predictions closing soon!")
     .setDescription(
       `**${match.team_a}** vs **${match.team_b}** (${match.type})\n` +
-        `${context} · Match \`${match.id}\`\n` +
+        `${context} · Match \`#${match.match_number ?? match.id}\`\n` +
         `Closes ${toDiscordTimestamp(match.end_time)} ` +
         `(${formatInZone(match.end_time)})\n` +
         `Get your predictions in now!`,
@@ -119,7 +119,7 @@ function predictionsOpenEmbed(match) {
     .setTitle("🟢 Predictions are open!")
     .setDescription(
       `**${match.team_a}** vs **${match.team_b}** (${match.type})\n` +
-        `${context} · Match \`${match.id}\`\n` +
+        `${context} · Match \`#${match.match_number ?? match.id}\`\n` +
         `Predictions close ${toDiscordTimestamp(match.end_time)} ` +
         `(${formatInZone(match.end_time)})\n` +
         `Get your predictions in!`,
@@ -194,7 +194,7 @@ async function announceMatchResolved(client, info) {
     .setTitle("🏁 Match Resolved")
     .setDescription(
       `**${match.team_a}** vs **${match.team_b}** (${match.type})\n` +
-        `${context} · Match \`${match.id}\`\n` +
+        `${context} · Match \`#${match.match_number ?? match.id}\`\n` +
         `Result: **${result}**\n` +
         `🗳️ ${total} prediction${total === 1 ? "" : "s"} scored · ` +
         `🎯 ${awarded} earned points\n\n` +

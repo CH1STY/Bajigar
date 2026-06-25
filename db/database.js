@@ -39,6 +39,7 @@ db.exec(`
     team_a        TEXT NOT NULL,
     team_b        TEXT NOT NULL,
     status        TEXT NOT NULL DEFAULT 'open', -- open | closed | resolved
+    match_number  INTEGER,                  -- per-tournament display number (NULL group for standalone)
     start_time    INTEGER,                  -- epoch ms predictions open (NULL = immediately)
     end_time      INTEGER NOT NULL,         -- epoch milliseconds
     result        TEXT,                     -- "X-Y" score or winning team name
@@ -123,6 +124,24 @@ if (!matchColumns.includes("start_announced")) {
   db.exec(
     "ALTER TABLE matches ADD COLUMN start_announced INTEGER NOT NULL DEFAULT 0",
   );
+}
+
+// Per-tournament match numbers shown/handled in place of the internal id.
+// Backfill existing rows sequentially by creation order within each tournament
+// (standalone matches, tournament_id IS NULL, form their own group).
+if (!matchColumns.includes("match_number")) {
+  db.exec("ALTER TABLE matches ADD COLUMN match_number INTEGER");
+  const groups = db.prepare("SELECT DISTINCT tournament_id FROM matches").all();
+  const idsForGroup = db.prepare(
+    "SELECT id FROM matches WHERE tournament_id IS ? ORDER BY id ASC",
+  );
+  const setNumber = db.prepare(
+    "UPDATE matches SET match_number = ? WHERE id = ?",
+  );
+  for (const group of groups) {
+    const rows = idsForGroup.all(group.tournament_id);
+    rows.forEach((row, index) => setNumber.run(index + 1, row.id));
+  }
 }
 
 // Track when each prediction was last set/changed (for the dashboard).

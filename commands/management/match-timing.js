@@ -1,8 +1,14 @@
-// /match-timing [match_id] [start_time?] [end_time?] — Sports_Manager only.
+// /match-timing [match_number] [start_time?] [end_time?] [tournament_id?] — Sports_Manager only.
 // Allows editing the start time and/or end time of a prediction match.
+// The match is addressed by its per-tournament number; the tournament is taken
+// from this channel unless tournament_id is given.
 
 const { SlashCommandBuilder } = require("discord.js");
-const { db, getMatch, updateMatchTimes } = require("../../db/queries");
+const {
+  getMatch,
+  resolveMatchByNumber,
+  updateMatchTimes,
+} = require("../../db/queries");
 const {
   parseEndTime,
   toDiscordTimestamp,
@@ -23,8 +29,9 @@ module.exports = {
     )
     .addIntegerOption((o) =>
       o
-        .setName("match_id")
-        .setDescription("Match ID to edit")
+        .setName("match_number")
+        .setDescription("Match number to edit (as shown on the dashboard)")
+        .setMinValue(1)
         .setRequired(true),
     )
     .addStringOption((o) =>
@@ -44,6 +51,14 @@ module.exports = {
         )
         .setRequired(false)
         .setAutocomplete(true),
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("tournament_id")
+        .setDescription(
+          "Tournament ID (defaults to this channel's; use for standalone/other tournaments)",
+        )
+        .setRequired(false),
     ),
 
   // Suggest time options as the manager types
@@ -59,9 +74,10 @@ module.exports = {
   },
 
   async execute(interaction) {
-    const matchId = interaction.options.getInteger("match_id");
+    const matchNumber = interaction.options.getInteger("match_number");
     const startTimeRaw = interaction.options.getString("start_time");
     const endTimeRaw = interaction.options.getString("end_time");
+    const tournamentIdOption = interaction.options.getInteger("tournament_id");
 
     // getString() returns null when an option isn't provided.
     const startProvided = startTimeRaw !== null;
@@ -76,13 +92,16 @@ module.exports = {
       );
     }
 
-    // Fetch the match
-    const match = getMatch(matchId);
-    if (!match) {
-      return interaction.reply(
-        ephemeral(`❌ No match found with ID \`${matchId}\`.`),
-      );
+    // Resolve the match by its per-tournament number.
+    const lookup = resolveMatchByNumber({
+      number: matchNumber,
+      channelId: interaction.channelId,
+      tournamentId: tournamentIdOption,
+    });
+    if (lookup.error) {
+      return interaction.reply(ephemeral(`❌ ${lookup.error}`));
     }
+    const match = lookup.match;
 
     // Can't edit resolved matches
     if (match.status === "resolved") {
@@ -143,7 +162,7 @@ module.exports = {
 
     // Update the match times (writes both final values directly).
     try {
-      updateMatchTimes(matchId, finalStartTime, finalEndTime);
+      updateMatchTimes(match.id, finalStartTime, finalEndTime);
     } catch (err) {
       console.error("Error updating match times:", err);
       return interaction.reply(
@@ -168,13 +187,13 @@ module.exports = {
 
     await interaction.reply(
       ephemeral(
-        `✅ Match \`${matchId}\` timing updated:\n${updates.join("\n")}`,
+        `✅ Match \`#${matchNumber}\` timing updated:\n${updates.join("\n")}`,
       ),
     );
 
     // Refresh the dashboard if the match is in a tournament
     // Re-fetch the match to ensure we have current tournament_id
-    const updatedMatch = getMatch(matchId);
+    const updatedMatch = getMatch(match.id);
     if (updatedMatch && updatedMatch.tournament_id) {
       console.log(
         `🔄 Refreshing dashboard for tournament ${updatedMatch.tournament_id} after match timing update`,
@@ -182,11 +201,11 @@ module.exports = {
       await refreshDashboard(interaction.client, updatedMatch.tournament_id);
     } else if (!updatedMatch) {
       console.warn(
-        `⚠️ Could not re-fetch match ${matchId} after timing update`,
+        `⚠️ Could not re-fetch match #${matchNumber} after timing update`,
       );
     } else {
       console.log(
-        `ℹ️ Match ${matchId} has no tournament (standalone), skipping dashboard refresh`,
+        `ℹ️ Match #${matchNumber} has no tournament (standalone), skipping dashboard refresh`,
       );
     }
 

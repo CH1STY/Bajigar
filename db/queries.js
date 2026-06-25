@@ -31,7 +31,7 @@ const getMatchPredictionsStmt = db.prepare(`
 // A single user's prediction history with each match's details.
 const getUserPredictionsStmt = db.prepare(`
   SELECT p.predicted_value, p.points_earned, p.updated_at,
-         m.id AS match_id, m.type, m.team_a, m.team_b,
+         m.id AS match_id, m.match_number, m.type, m.team_a, m.team_b,
          m.status, m.result, m.start_time, m.end_time,
          t.name AS tournament_name
   FROM predictions p
@@ -84,6 +84,75 @@ function getMatch(id) {
 /** @returns {object[]} every match in a tournament */
 function getTournamentMatches(tournamentId) {
   return getTournamentMatchesStmt.all(tournamentId);
+}
+
+// --- Per-tournament match numbers -------------------------------------------
+// Matches are shown and addressed by a per-tournament sequence number rather
+// than the internal auto-increment id. Standalone matches (tournament_id IS
+// NULL) share their own number group.
+const getMatchByNumberStmt = db.prepare(
+  "SELECT * FROM matches WHERE tournament_id = ? AND match_number = ?",
+);
+const getStandaloneMatchByNumberStmt = db.prepare(
+  "SELECT * FROM matches WHERE tournament_id IS NULL AND match_number = ?",
+);
+const usedNumbersTournamentStmt = db.prepare(
+  "SELECT match_number FROM matches WHERE tournament_id = ? AND match_number IS NOT NULL",
+);
+const usedNumbersStandaloneStmt = db.prepare(
+  "SELECT match_number FROM matches WHERE tournament_id IS NULL AND match_number IS NOT NULL",
+);
+
+/** @returns {object|undefined} match by its per-tournament number */
+function getMatchByNumber(tournamentId, matchNumber) {
+  return tournamentId == null
+    ? getStandaloneMatchByNumberStmt.get(matchNumber)
+    : getMatchByNumberStmt.get(tournamentId, matchNumber);
+}
+
+/** @returns {number[]} match numbers already used within a number group */
+function getUsedMatchNumbers(tournamentId) {
+  const rows =
+    tournamentId == null
+      ? usedNumbersStandaloneStmt.all()
+      : usedNumbersTournamentStmt.all(tournamentId);
+  return rows.map((r) => r.match_number);
+}
+
+/** @returns {number} the next free match number for a number group */
+function nextMatchNumber(tournamentId) {
+  const used = getUsedMatchNumbers(tournamentId);
+  return used.length ? Math.max(...used) + 1 : 1;
+}
+
+/**
+ * Resolve a match from a per-tournament number within a tournament context.
+ * The context is taken from an explicit tournament id when provided, otherwise
+ * from the tournament linked to the given channel.
+ * @param {{ number:number, channelId?:string|null, tournamentId?:number|null }} opts
+ * @returns {{ match?:object, tournament?:object|null, error?:string }}
+ */
+function resolveMatchByNumber({ number, channelId, tournamentId }) {
+  let tournament = null;
+  if (tournamentId != null) {
+    tournament = getTournament(tournamentId) ?? null;
+    if (!tournament) {
+      return { error: `No tournament found with ID \`${tournamentId}\`.` };
+    }
+  } else if (channelId) {
+    tournament = getTournamentByChannel(channelId) ?? null;
+  }
+  const match = getMatchByNumber(tournament ? tournament.id : null, number);
+  if (!match) {
+    const where = tournament
+      ? `**${tournament.name}**`
+      : "the standalone matches";
+    return {
+      tournament,
+      error: `No match **#${number}** found in ${where}.`,
+    };
+  }
+  return { match, tournament };
 }
 
 /** @returns {object|undefined} a user's prediction for one match */
@@ -249,6 +318,10 @@ module.exports = {
   getTournamentByChannel,
   getMatch,
   getTournamentMatches,
+  getMatchByNumber,
+  getUsedMatchNumbers,
+  nextMatchNumber,
+  resolveMatchByNumber,
   getPrediction,
   getMatchPredictions,
   getPredictionCounts,

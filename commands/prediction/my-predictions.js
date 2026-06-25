@@ -81,7 +81,7 @@ module.exports = {
           }
 
           return (
-            `**#${r.match_id} ${emoji} ${r.team_a} 🆚 ${r.team_b}**${where}\n` +
+            `**#${r.match_number ?? r.match_id} ${emoji} ${r.team_a} 🆚 ${r.team_b}**${where}\n` +
             `> ${tag} · your pick: \`${r.predicted_value}\`\n` +
             `> ${outcome}`
           );

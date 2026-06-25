@@ -1,11 +1,13 @@
-// /predict-football [match_id] [score] — any member.
+// /predict-football [match_number] [score] [tournament_id?] — any member.
+// The match is addressed by its per-tournament number (taken from this channel
+// unless tournament_id is given).
 
 const { SlashCommandBuilder } = require("discord.js");
 const {
-  getMatch,
   upsertPrediction,
   isMatchOpenForPredictions,
   predictionState,
+  resolveMatchByNumber,
 } = require("../../db/queries");
 const { normalizeFootballScore } = require("../../utils/scoring");
 const { toDiscordTimestamp } = require("../../utils/time");
@@ -17,7 +19,11 @@ module.exports = {
     .setName("predict-football")
     .setDescription("Predict a football score (e.g. 2-1)")
     .addIntegerOption((o) =>
-      o.setName("match_id").setDescription("ID of the match").setRequired(true),
+      o
+        .setName("match_number")
+        .setDescription("Match number (as shown on the dashboard)")
+        .setMinValue(1)
+        .setRequired(true),
     )
     .addStringOption((o) =>
       o
@@ -26,11 +32,20 @@ module.exports = {
           "Goals as firstTeam-secondTeam (same order as the match), e.g. 2-1",
         )
         .setRequired(true),
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("tournament_id")
+        .setDescription(
+          "Tournament ID (defaults to this channel's; use for standalone/other tournaments)",
+        )
+        .setRequired(false),
     ),
 
   async execute(interaction) {
-    const matchId = interaction.options.getInteger("match_id");
+    const matchNumber = interaction.options.getInteger("match_number");
     const scoreRaw = interaction.options.getString("score");
+    const tournamentIdOption = interaction.options.getInteger("tournament_id");
 
     const score = normalizeFootballScore(scoreRaw);
     if (!score) {
@@ -41,16 +56,19 @@ module.exports = {
       );
     }
 
-    const match = getMatch(matchId);
-    if (!match) {
-      return interaction.reply(
-        ephemeral(`❌ No match found with ID \`${matchId}\`.`),
-      );
+    const lookup = resolveMatchByNumber({
+      number: matchNumber,
+      channelId: interaction.channelId,
+      tournamentId: tournamentIdOption,
+    });
+    if (lookup.error) {
+      return interaction.reply(ephemeral(`❌ ${lookup.error}`));
     }
+    const match = lookup.match;
     if (match.type !== "football") {
       return interaction.reply(
         ephemeral(
-          `❌ Match \`${matchId}\` is a cricket match. Use \`/predict-cricket\`.`,
+          `❌ Match \`#${matchNumber}\` is a cricket match. Use \`/predict-cricket\`.`,
         ),
       );
     }
@@ -63,11 +81,13 @@ module.exports = {
             ? `the deadline passed (${toDiscordTimestamp(match.end_time)})`
             : "predictions are locked";
       return interaction.reply(
-        ephemeral(`❌ Cannot predict on match \`${matchId}\` — ${reason}.`),
+        ephemeral(
+          `❌ Cannot predict on match \`#${matchNumber}\` — ${reason}.`,
+        ),
       );
     }
 
-    upsertPrediction(matchId, interaction.user.id, score);
+    upsertPrediction(match.id, interaction.user.id, score);
 
     const [ga, gb] = score.split("-");
     await interaction.reply(

@@ -1,7 +1,9 @@
-// /prediction-lock [match_id] — Sports_Manager only.
+// /prediction-lock [match_number] [tournament_id?] — Sports_Manager only.
+// The match is addressed by its per-tournament number; the tournament is taken
+// from this channel unless tournament_id is given.
 
 const { SlashCommandBuilder } = require("discord.js");
-const { db, getMatch, getTournament } = require("../../db/queries");
+const { db, getTournament, resolveMatchByNumber } = require("../../db/queries");
 const { ephemeral } = require("../../utils/embeds");
 const { refreshDashboard } = require("../../utils/dashboard");
 const {
@@ -38,34 +40,51 @@ module.exports = {
       "Manually lock a match from further predictions (Sports_Manager only)",
     )
     .addIntegerOption((o) =>
-      o.setName("match_id").setDescription("ID of the match").setRequired(true),
+      o
+        .setName("match_number")
+        .setDescription("Match number (as shown on the dashboard)")
+        .setMinValue(1)
+        .setRequired(true),
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("tournament_id")
+        .setDescription(
+          "Tournament ID (defaults to this channel's; use for standalone/other tournaments)",
+        )
+        .setRequired(false),
     ),
 
   async execute(interaction) {
-    const matchId = interaction.options.getInteger("match_id");
-    const match = getMatch(matchId);
+    const matchNumber = interaction.options.getInteger("match_number");
+    const tournamentIdOption = interaction.options.getInteger("tournament_id");
 
-    if (!match) {
-      return interaction.reply(
-        ephemeral(`❌ No match found with ID \`${matchId}\`.`),
-      );
+    const lookup = resolveMatchByNumber({
+      number: matchNumber,
+      channelId: interaction.channelId,
+      tournamentId: tournamentIdOption,
+    });
+    if (lookup.error) {
+      return interaction.reply(ephemeral(`❌ ${lookup.error}`));
     }
+    const match = lookup.match;
+
     if (match.status === "resolved") {
       return interaction.reply(
-        ephemeral(`❌ Match \`${matchId}\` is already resolved.`),
+        ephemeral(`❌ Match \`#${matchNumber}\` is already resolved.`),
       );
     }
     if (match.status === "closed") {
       return interaction.reply(
-        ephemeral(`ℹ️ Match \`${matchId}\` is already locked.`),
+        ephemeral(`ℹ️ Match \`#${matchNumber}\` is already locked.`),
       );
     }
 
-    lockMatch.run(matchId);
+    lockMatch.run(match.id);
     match.status = "closed";
     await interaction.reply(
       ephemeral(
-        `🔒 Predictions locked for match \`${matchId}\` (**${match.team_a}** vs **${match.team_b}**).`,
+        `🔒 Predictions locked for match \`#${matchNumber}\` (**${match.team_a}** vs **${match.team_b}**).`,
       ),
     );
 

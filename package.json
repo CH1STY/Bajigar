@@ -7,7 +7,9 @@
     "start": "node start-all.js",
     "bot": "node deploy.js && node bot.js",
     "deploy": "node deploy.js",
-    "web": "node web/server.js"
+    "web": "node web/server.js",
+    "migrate:match-numbers": "node scripts/backfill-match-numbers.js",
+    "renumber:matches": "node scripts/renumber-tournament-matches.js"
   },
   "dependencies": {
     "discord.js": "^14.26.4",

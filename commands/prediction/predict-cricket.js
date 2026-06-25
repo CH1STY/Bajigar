@@ -1,11 +1,13 @@
-// /predict-cricket [match_id] [winner] — any member.
+// /predict-cricket [match_number] [winner] [tournament_id?] — any member.
+// The match is addressed by its per-tournament number (taken from this channel
+// unless tournament_id is given).
 
 const { SlashCommandBuilder } = require("discord.js");
 const {
-  getMatch,
   upsertPrediction,
   isMatchOpenForPredictions,
   predictionState,
+  resolveMatchByNumber,
 } = require("../../db/queries");
 const { toDiscordTimestamp } = require("../../utils/time");
 const { ephemeral } = require("../../utils/embeds");
@@ -16,29 +18,45 @@ module.exports = {
     .setName("predict-cricket")
     .setDescription("Predict the winning team of a cricket match")
     .addIntegerOption((o) =>
-      o.setName("match_id").setDescription("ID of the match").setRequired(true),
+      o
+        .setName("match_number")
+        .setDescription("Match number (as shown on the dashboard)")
+        .setMinValue(1)
+        .setRequired(true),
     )
     .addStringOption((o) =>
       o
         .setName("winner")
         .setDescription("Name of the team you think will win")
         .setRequired(true),
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("tournament_id")
+        .setDescription(
+          "Tournament ID (defaults to this channel's; use for standalone/other tournaments)",
+        )
+        .setRequired(false),
     ),
 
   async execute(interaction) {
-    const matchId = interaction.options.getInteger("match_id");
+    const matchNumber = interaction.options.getInteger("match_number");
     const winnerRaw = interaction.options.getString("winner").trim();
+    const tournamentIdOption = interaction.options.getInteger("tournament_id");
 
-    const match = getMatch(matchId);
-    if (!match) {
-      return interaction.reply(
-        ephemeral(`❌ No match found with ID \`${matchId}\`.`),
-      );
+    const lookup = resolveMatchByNumber({
+      number: matchNumber,
+      channelId: interaction.channelId,
+      tournamentId: tournamentIdOption,
+    });
+    if (lookup.error) {
+      return interaction.reply(ephemeral(`❌ ${lookup.error}`));
     }
+    const match = lookup.match;
     if (match.type !== "cricket") {
       return interaction.reply(
         ephemeral(
-          `❌ Match \`${matchId}\` is a football match. Use \`/predict-football\`.`,
+          `❌ Match \`#${matchNumber}\` is a football match. Use \`/predict-football\`.`,
         ),
       );
     }
@@ -51,7 +69,9 @@ module.exports = {
             ? `the deadline passed (${toDiscordTimestamp(match.end_time)})`
             : "predictions are locked";
       return interaction.reply(
-        ephemeral(`❌ Cannot predict on match \`${matchId}\` — ${reason}.`),
+        ephemeral(
+          `❌ Cannot predict on match \`#${matchNumber}\` — ${reason}.`,
+        ),
       );
     }
 
@@ -69,7 +89,7 @@ module.exports = {
       );
     }
 
-    upsertPrediction(matchId, interaction.user.id, winner);
+    upsertPrediction(match.id, interaction.user.id, winner);
 
     await interaction.reply(
       ephemeral(

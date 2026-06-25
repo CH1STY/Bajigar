@@ -5,19 +5,26 @@
 //
 // Accepted JSON shapes:
 //   { "matches": [ { ...match }, ... ] }   or   [ { ...match }, ... ]
-// Each match: { type, team_a, team_b, end_time, start_time? }
+// Each match: { type, team_a, team_b, end_time, start_time?, result? }
 //   - type:       "football" | "cricket"
 //   - end_time:   future time ("2026-06-20 18:00", "in 3 hours", "17:00", unix)
+//                 optional when "result" is given (defaults to now)
 //   - start_time: optional; "now"/omitted = open immediately, else a future time
+//   - result:     optional; if present the match is imported already RESOLVED
+//                 (football "X-Y" score, or cricket winning team name)
+//   - match_number: optional custom per-tournament number; omitted entries are
+//                 auto-numbered after the existing/used numbers in the group
 
 const { SlashCommandBuilder, MessageFlags } = require("discord.js");
 const {
   db,
   getTournament,
   getTournamentByChannel,
+  getUsedMatchNumbers,
   transaction,
 } = require("../../db/queries");
 const { parseEndTime, toDiscordTimestamp } = require("../../utils/time");
+const { normalizeFootballScore } = require("../../utils/scoring");
 const { ephemeral } = require("../../utils/embeds");
 const { refreshDashboard } = require("../../utils/dashboard");
 const { runStartAnnouncementCheck } = require("../../utils/notifications");
@@ -26,8 +33,8 @@ const MAX_MATCHES = 100;
 const MAX_BYTES = 256 * 1024; // 256 KB attachment cap
 
 const insertMatch = db.prepare(
-  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, start_time, end_time)
-   VALUES (?, ?, ?, ?, 'open', ?, ?)`,
+  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, match_number, start_time, end_time, result)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 
 /** Pull the array of match objects out of either accepted JSON shape. */
@@ -39,7 +46,7 @@ function extractMatches(parsed) {
 
 /**
  * Validate one raw match entry.
- * @returns {{ ok: true, value: {type,team_a,team_b,startTime,endTime} } | { ok: false, error: string }}
+ * @returns {{ ok: true, value: {type,team_a,team_b,startTime,endTime,status,result} } | { ok: false, error: string }}
  */
 function validateMatch(raw) {
   if (!raw || typeof raw !== "object") {
@@ -55,37 +62,108 @@ function validateMatch(raw) {
     return { ok: false, error: "team_a and team_b are required" };
   }
 
-  if (raw.end_time === undefined || raw.end_time === null) {
-    return { ok: false, error: "end_time is required" };
+  // result: optional. If present, the match is imported already resolved.
+  const hasResult =
+    raw.result !== undefined &&
+    raw.result !== null &&
+    String(raw.result).trim() !== "";
+  let result = null;
+  if (hasResult) {
+    if (type === "football") {
+      result = normalizeFootballScore(String(raw.result).trim());
+      if (!result) {
+        return {
+          ok: false,
+          error: `result must be a score like "2-1" (got "${raw.result}")`,
+        };
+      }
+    } else {
+      const lower = String(raw.result).trim().toLowerCase();
+      if (lower !== teamA.toLowerCase() && lower !== teamB.toLowerCase()) {
+        return {
+          ok: false,
+          error: `result must be the winning team ("${teamA}" or "${teamB}")`,
+        };
+      }
+      result = lower === teamA.toLowerCase() ? teamA : teamB;
+    }
   }
-  const endTime = parseEndTime(String(raw.end_time));
-  if (endTime === null) {
-    return { ok: false, error: `could not parse end_time "${raw.end_time}"` };
-  }
-  if (endTime <= Date.now()) {
-    return { ok: false, error: "end_time must be in the future" };
+
+  // end_time: required, except for resolved matches where it defaults to now.
+  let endTime;
+  if (
+    raw.end_time === undefined ||
+    raw.end_time === null ||
+    String(raw.end_time).trim() === ""
+  ) {
+    if (!hasResult) {
+      return { ok: false, error: "end_time is required" };
+    }
+    endTime = Date.now();
+  } else {
+    endTime = parseEndTime(String(raw.end_time));
+    if (endTime === null) {
+      return { ok: false, error: `could not parse end_time "${raw.end_time}"` };
+    }
+    // Only open matches must close in the future; resolved ones may be past.
+    if (!hasResult && endTime <= Date.now()) {
+      return { ok: false, error: "end_time must be in the future" };
+    }
   }
 
   // start_time: optional. "now"/empty => open immediately (null).
+  // Irrelevant for an already-resolved match.
   let startTime = null;
-  const rawStart = raw.start_time;
-  if (
-    rawStart !== undefined &&
-    rawStart !== null &&
-    String(rawStart).toLowerCase() !== "now" &&
-    String(rawStart).trim() !== ""
-  ) {
-    const parsedStart = parseEndTime(String(rawStart));
-    if (parsedStart === null) {
-      return { ok: false, error: `could not parse start_time "${rawStart}"` };
+  if (!hasResult) {
+    const rawStart = raw.start_time;
+    if (
+      rawStart !== undefined &&
+      rawStart !== null &&
+      String(rawStart).toLowerCase() !== "now" &&
+      String(rawStart).trim() !== ""
+    ) {
+      const parsedStart = parseEndTime(String(rawStart));
+      if (parsedStart === null) {
+        return { ok: false, error: `could not parse start_time "${rawStart}"` };
+      }
+      if (parsedStart > Date.now()) startTime = parsedStart;
     }
-    if (parsedStart > Date.now()) startTime = parsedStart;
-  }
-  if (startTime !== null && startTime >= endTime) {
-    return { ok: false, error: "start_time must be before end_time" };
+    if (startTime !== null && startTime >= endTime) {
+      return { ok: false, error: "start_time must be before end_time" };
+    }
   }
 
-  return { ok: true, value: { type, teamA, teamB, startTime, endTime } };
+  // match_number: optional custom per-tournament number. Validated for
+  // uniqueness later (once the tournament context is known).
+  let matchNumber = null;
+  if (
+    raw.match_number !== undefined &&
+    raw.match_number !== null &&
+    String(raw.match_number).trim() !== ""
+  ) {
+    const n = Number(raw.match_number);
+    if (!Number.isInteger(n) || n < 1) {
+      return {
+        ok: false,
+        error: `match_number must be a positive integer (got "${raw.match_number}")`,
+      };
+    }
+    matchNumber = n;
+  }
+
+  return {
+    ok: true,
+    value: {
+      type,
+      teamA,
+      teamB,
+      startTime,
+      endTime,
+      status: hasResult ? "resolved" : "open",
+      result,
+      matchNumber,
+    },
+  };
 }
 
 module.exports = {
@@ -218,19 +296,52 @@ module.exports = {
       );
     }
 
-    // Insert all in a single transaction.
+    // Assign per-tournament match numbers. Honour any custom numbers (checking
+    // they don't clash with existing matches or each other), then fill the rest
+    // with the next free numbers in the group.
     const tournamentId = tournament?.id ?? null;
-    const ids = transaction(() =>
-      valid.map(
-        (m) =>
-          insertMatch.run(
-            tournamentId,
-            m.type,
-            m.teamA,
-            m.teamB,
-            m.startTime,
-            m.endTime,
-          ).lastInsertRowid,
+    const used = new Set(getUsedMatchNumbers(tournamentId));
+    const numberErrors = [];
+    valid.forEach((m, i) => {
+      if (m.matchNumber !== null) {
+        if (used.has(m.matchNumber)) {
+          numberErrors.push(
+            `• Match #${i + 1}: match_number ${m.matchNumber} is already used`,
+          );
+        } else {
+          used.add(m.matchNumber);
+        }
+      }
+    });
+    if (numberErrors.length) {
+      return interaction.editReply(
+        `❌ Import aborted — duplicate match numbers (nothing was added):\n${numberErrors.join("\n")}`,
+      );
+    }
+    let nextNumber = used.size ? Math.max(...used) + 1 : 1;
+    valid.forEach((m) => {
+      if (m.matchNumber === null) {
+        while (used.has(nextNumber)) nextNumber += 1;
+        m.matchNumber = nextNumber;
+        used.add(nextNumber);
+        nextNumber += 1;
+      }
+    });
+
+    // Insert all in a single transaction.
+    transaction(() =>
+      valid.forEach((m) =>
+        insertMatch.run(
+          tournamentId,
+          m.type,
+          m.teamA,
+          m.teamB,
+          m.status,
+          m.matchNumber,
+          m.startTime,
+          m.endTime,
+          m.result,
+        ),
       ),
     );
 
@@ -239,15 +350,20 @@ module.exports = {
       : "as **standalone matches** (no tournament)";
     const preview = valid
       .slice(0, 10)
-      .map(
-        (m, i) =>
-          `• \`#${ids[i]}\` ${m.teamA} vs ${m.teamB} (${m.type}) — closes ${toDiscordTimestamp(m.endTime)}`,
+      .map((m) =>
+        m.status === "resolved"
+          ? `• \`#${m.matchNumber}\` ${m.teamA} vs ${m.teamB} (${m.type}) — 🏁 result **${m.result}**`
+          : `• \`#${m.matchNumber}\` ${m.teamA} vs ${m.teamB} (${m.type}) — closes ${toDiscordTimestamp(m.endTime)}`,
       )
       .join("\n");
     const more = valid.length > 10 ? `\n…and ${valid.length - 10} more.` : "";
 
+    const resolvedCount = valid.filter((m) => m.status === "resolved").length;
+    const summary =
+      resolvedCount > 0 ? ` (${resolvedCount} already resolved)` : "";
+
     await interaction.editReply(
-      `✅ Imported **${valid.length}** match${valid.length === 1 ? "" : "es"} ${context}:\n${preview}${more}`,
+      `✅ Imported **${valid.length}** match${valid.length === 1 ? "" : "es"}${summary} ${context}:\n${preview}${more}`,
     );
 
     if (tournament) {
@@ -256,7 +372,8 @@ module.exports = {
 
     // Announce any matches that are already open for predictions (the scheduler
     // covers any imported with a future start_time when their time arrives).
-    if (valid.some((m) => m.startTime === null)) {
+    // Resolved imports are never announced as "predictions open".
+    if (valid.some((m) => m.status === "open" && m.startTime === null)) {
       await runStartAnnouncementCheck(interaction.client);
     }
   },

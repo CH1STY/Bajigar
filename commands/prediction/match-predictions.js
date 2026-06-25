@@ -1,13 +1,15 @@
-// /match-predictions [match_id] — any member.
+// /match-predictions [match_number] [tournament_id?] — any member.
 // Lists everyone's predictions for a match. To avoid copying, the predicted
 // values stay hidden while the match is still open; only the list of who has
 // predicted is shown. Once predictions close, full values (and points) appear.
+// The match is addressed by its per-tournament number (taken from this channel
+// unless tournament_id is given).
 
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const {
-  getMatch,
   getMatchPredictions,
   isMatchOpenForPredictions,
+  resolveMatchByNumber,
 } = require("../../db/queries");
 const { toDiscordTimestamp } = require("../../utils/time");
 const { ephemeral } = require("../../utils/embeds");
@@ -33,7 +35,7 @@ function buildMatchPredictionsEmbed(match) {
       : "🔒 Closed";
 
   const embed = new EmbedBuilder()
-    .setTitle(`${emoji} Predictions — Match #${match.id}`)
+    .setTitle(`${emoji} Predictions — Match #${match.match_number ?? match.id}`)
     .setColor(0x9b59b6)
     .setTimestamp();
 
@@ -81,19 +83,34 @@ module.exports = {
     .setName("match-predictions")
     .setDescription("See everyone's predictions for a match")
     .addIntegerOption((o) =>
-      o.setName("match_id").setDescription("ID of the match").setRequired(true),
+      o
+        .setName("match_number")
+        .setDescription("Match number (as shown on the dashboard)")
+        .setMinValue(1)
+        .setRequired(true),
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("tournament_id")
+        .setDescription(
+          "Tournament ID (defaults to this channel's; use for standalone/other tournaments)",
+        )
+        .setRequired(false),
     ),
 
   async execute(interaction) {
-    const matchId = interaction.options.getInteger("match_id");
-    const match = getMatch(matchId);
-    if (!match) {
-      return interaction.reply(
-        ephemeral(`❌ No match found with ID \`${matchId}\`.`),
-      );
+    const matchNumber = interaction.options.getInteger("match_number");
+    const tournamentIdOption = interaction.options.getInteger("tournament_id");
+    const lookup = resolveMatchByNumber({
+      number: matchNumber,
+      channelId: interaction.channelId,
+      tournamentId: tournamentIdOption,
+    });
+    if (lookup.error) {
+      return interaction.reply(ephemeral(`❌ ${lookup.error}`));
     }
 
-    const embed = buildMatchPredictionsEmbed(match);
+    const embed = buildMatchPredictionsEmbed(lookup.match);
     return interaction.reply({ embeds: [embed] });
   },
 };

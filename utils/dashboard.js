@@ -81,7 +81,7 @@ function buildMatchTable(matches, counts) {
     const key = matchState(m).key;
     const resolved = key === "resolved";
     return {
-      id: `#${m.id}`,
+      id: `#${m.match_number ?? m.id}`,
       teams: clip(`${m.team_a} v ${m.team_b}`, MAX_TEAMS_WIDTH),
       type: m.type === "cricket" ? "C" : "F",
       status: STATE_TEXT[key] ?? "Closed",
@@ -135,7 +135,7 @@ function buildDashboardEmbed(tournament, matches, counts, totalMatches) {
   let table = buildMatchTable(matches, counts);
 
   // Compact legend to explain table columns (goes at the top)
-  const legend = `**Legend:** # = ID | Match = Teams | T = Type (F=Football/C=Cricket) | Stat = Status (Open=accepting predictions / Next=opens soon / Cls=closed / Res=result published) | R = Result | P = Total Predictions Made`;
+  const legend = `**Legend:** # = Match No | Match = Teams | T = Type (F=Football/C=Cricket) | Stat = Status (Open=accepting predictions / Next=opens soon / Cls=closed / Res=result published) | R = Result | P = Total Predictions Made`;
 
   // Timestamps don't render inside code blocks, so list the actionable
   // open/upcoming deadlines underneath where they render as live times.
@@ -143,9 +143,9 @@ function buildDashboardEmbed(tournament, matches, counts, totalMatches) {
     .map((m) => {
       const key = matchState(m).key;
       if (key === "open")
-        return `⏳ \`#${m.id}\` closes ${toDiscordTimestamp(m.end_time)}`;
+        return `⏳ \`#${m.match_number ?? m.id}\` closes ${toDiscordTimestamp(m.end_time)}`;
       if (key === "pending")
-        return `🕒 \`#${m.id}\` opens ${toDiscordTimestamp(m.start_time)}`;
+        return `🕒 \`#${m.match_number ?? m.id}\` opens ${toDiscordTimestamp(m.start_time)}`;
       return null;
     })
     .filter(Boolean);
@@ -186,10 +186,11 @@ function buildDashboardComponents(matches) {
     // Only show a button while predictions are ongoing (open).
     if (matchState(m).key !== "open") continue;
 
-    const label = `🟢 Predict #${m.id} · ${m.team_a} v ${m.team_b}`.slice(
-      0,
-      80,
-    );
+    const label =
+      `🟢 Predict #${m.match_number ?? m.id} · ${m.team_a} v ${m.team_b}`.slice(
+        0,
+        80,
+      );
     const button = new ButtonBuilder()
       .setCustomId(`${MATCH_BUTTON_PREFIX}${m.id}`)
       .setLabel(label)

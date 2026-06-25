@@ -1,11 +1,13 @@
-// /match-resolve [match_id] [result] — Sports_Manager only.
+// /match-resolve [match_number] [result] [tournament_id?] — Sports_Manager only.
 // Closes a match, stores the result, scores every prediction and updates points.
+// The match is addressed by its per-tournament number; the tournament is taken
+// from this channel unless tournament_id is given.
 
 const { SlashCommandBuilder } = require("discord.js");
 const {
   db,
-  getMatch,
   getTournament,
+  resolveMatchByNumber,
   transaction,
 } = require("../../db/queries");
 const {
@@ -69,25 +71,41 @@ module.exports = {
       "Resolve a match and score predictions (Sports_Manager only)",
     )
     .addIntegerOption((o) =>
-      o.setName("match_id").setDescription("ID of the match").setRequired(true),
+      o
+        .setName("match_number")
+        .setDescription("Match number (as shown on the dashboard)")
+        .setMinValue(1)
+        .setRequired(true),
     )
     .addStringOption((o) =>
       o
         .setName("result")
         .setDescription('Football: "X-Y" score. Cricket: winning team name.')
         .setRequired(true),
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("tournament_id")
+        .setDescription(
+          "Tournament ID (defaults to this channel's; use for standalone/other tournaments)",
+        )
+        .setRequired(false),
     ),
 
   async execute(interaction) {
-    const matchId = interaction.options.getInteger("match_id");
+    const matchNumber = interaction.options.getInteger("match_number");
     const resultRaw = interaction.options.getString("result").trim();
+    const tournamentIdOption = interaction.options.getInteger("tournament_id");
 
-    const match = getMatch(matchId);
-    if (!match) {
-      return interaction.reply(
-        ephemeral(`❌ No match found with ID \`${matchId}\`.`),
-      );
+    const lookup = resolveMatchByNumber({
+      number: matchNumber,
+      channelId: interaction.channelId,
+      tournamentId: tournamentIdOption,
+    });
+    if (lookup.error) {
+      return interaction.reply(ephemeral(`❌ ${lookup.error}`));
     }
+    const match = lookup.match;
     if (
       match.status !== "resolved" &&
       match.status !== "open" &&
@@ -96,7 +114,7 @@ module.exports = {
     ) {
       return interaction.reply(
         ephemeral(
-          `❌ Cannot resolve match \`${matchId}\` — status is \`${match.status}\`.`,
+          `❌ Cannot resolve match \`#${matchNumber}\` — status is \`${match.status}\`.`,
         ),
       );
     }
@@ -135,7 +153,7 @@ module.exports = {
 
     await interaction.reply(
       ephemeral(
-        `🏁 Match \`${matchId}\` ${action.toLowerCase()} — result: **${result}**.\n` +
+        `🏁 Match \`#${matchNumber}\` ${action.toLowerCase()} — result: **${result}**.\n` +
           `Scored **${total}** prediction(s); **${awarded}** earned points.`,
       ),
     );
@@ -149,7 +167,7 @@ module.exports = {
       result,
       total,
       awarded,
-      topEarners: getMatchTopEarners.all(matchId),
+      topEarners: getMatchTopEarners.all(match.id),
       tournamentName: tournament?.name ?? null,
       tournamentChannelId: tournament?.channel_id ?? null,
     });

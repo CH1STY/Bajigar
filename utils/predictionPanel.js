@@ -48,7 +48,7 @@ function panelContent(match, prediction) {
   else status = "🔒 **Closed** for predictions";
 
   const lines = [
-    `**#${match.id} ${emoji} ${match.type[0].toUpperCase()}${match.type.slice(1)}**`,
+    `**#${match.match_number ?? match.id} ${emoji} ${match.type[0].toUpperCase()}${match.type.slice(1)}**`,
     `**${match.team_a}** 🆚 **${match.team_b}**`,
     status,
   ];

@@ -7,6 +7,8 @@ const {
   db,
   getTournament,
   getTournamentByChannel,
+  getUsedMatchNumbers,
+  nextMatchNumber,
 } = require("../../db/queries");
 const {
   parseEndTime,
@@ -14,14 +16,15 @@ const {
   buildEndTimeSuggestions,
   buildStartTimeSuggestions,
 } = require("../../utils/time");
+const { normalizeFootballScore } = require("../../utils/scoring");
 const { ephemeral } = require("../../utils/embeds");
 const { refreshDashboard } = require("../../utils/dashboard");
 const { runStartAnnouncementCheck } = require("../../utils/notifications");
 const { TIMEZONE } = require("../../config/config");
 
 const insertMatch = db.prepare(
-  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, start_time, end_time)
-   VALUES (?, ?, ?, ?, 'open', ?, ?)`,
+  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, match_number, start_time, end_time, result)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 
 module.exports = {
@@ -63,6 +66,23 @@ module.exports = {
         .setRequired(false)
         .setAutocomplete(true),
     )
+    .addStringOption((o) =>
+      o
+        .setName("result")
+        .setDescription(
+          'Add an already-finished match: football "X-Y" score, or cricket winning team name',
+        )
+        .setRequired(false),
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("match_number")
+        .setDescription(
+          "Custom match number (defaults to the next number in the tournament)",
+        )
+        .setMinValue(1)
+        .setRequired(false),
+    )
     .addIntegerOption((o) =>
       o
         .setName("tournament_id")
@@ -90,7 +110,11 @@ module.exports = {
     const teamB = interaction.options.getString("team_b").trim();
     const endTimeRaw = interaction.options.getString("end_time");
     const startTimeRaw = interaction.options.getString("start_time");
+    const resultRaw = interaction.options.getString("result");
+    const matchNumberOption = interaction.options.getInteger("match_number");
     const tournamentIdOption = interaction.options.getInteger("tournament_id");
+
+    const hasResult = resultRaw !== null && resultRaw.trim() !== "";
 
     // Resolve the tournament:
     //   1. explicit tournament_id, else
@@ -110,7 +134,9 @@ module.exports = {
       tournament = getTournamentByChannel(interaction.channelId) ?? null;
     }
 
-    if (tournament && tournament.status !== "active") {
+    // Only block adding *open* matches to a non-active tournament. Historical
+    // (already-resolved) matches may be back-filled into any tournament.
+    if (tournament && tournament.status !== "active" && !hasResult) {
       return interaction.reply(
         ephemeral(`❌ Tournament **${tournament.name}** is not active.`),
       );
@@ -124,15 +150,41 @@ module.exports = {
         ),
       );
     }
-    if (endTime <= Date.now()) {
+    // An open match must close in the future; a resolved one can be in the past.
+    if (!hasResult && endTime <= Date.now()) {
       return interaction.reply(
         ephemeral("❌ `end_time` must be in the future."),
       );
     }
 
+    // Validate & normalize the result for an already-finished match.
+    let result = null;
+    if (hasResult) {
+      if (type === "football") {
+        const normalized = normalizeFootballScore(resultRaw.trim());
+        if (!normalized) {
+          return interaction.reply(
+            ephemeral("❌ Football `result` must be a score like `2-1`."),
+          );
+        }
+        result = normalized;
+      } else {
+        const lower = resultRaw.trim().toLowerCase();
+        if (lower !== teamA.toLowerCase() && lower !== teamB.toLowerCase()) {
+          return interaction.reply(
+            ephemeral(
+              `❌ Cricket \`result\` must be the winning team: **${teamA}** or **${teamB}**.`,
+            ),
+          );
+        }
+        result = lower === teamA.toLowerCase() ? teamA : teamB;
+      }
+    }
+
     // Resolve the start time. Default / "now" => null (open immediately).
+    // Irrelevant for an already-resolved match.
     let startTime = null;
-    if (startTimeRaw && startTimeRaw.toLowerCase() !== "now") {
+    if (!hasResult && startTimeRaw && startTimeRaw.toLowerCase() !== "now") {
       const parsedStart = parseEndTime(startTimeRaw);
       if (parsedStart === null) {
         return interaction.reply(
@@ -150,18 +202,55 @@ module.exports = {
       );
     }
 
-    const info = insertMatch.run(
+    // Assign the per-tournament match number: a custom one (validated unique
+    // within its number group) or the next free number.
+    const groupId = tournament ? tournament.id : null;
+    let matchNumber;
+    if (matchNumberOption !== null) {
+      if (getUsedMatchNumbers(groupId).includes(matchNumberOption)) {
+        return interaction.reply(
+          ephemeral(
+            `❌ Match number **#${matchNumberOption}** is already used` +
+              (tournament
+                ? ` in **${tournament.name}**.`
+                : " by a standalone match."),
+          ),
+        );
+      }
+      matchNumber = matchNumberOption;
+    } else {
+      matchNumber = nextMatchNumber(groupId);
+    }
+
+    insertMatch.run(
       tournament?.id ?? null,
       type,
       teamA,
       teamB,
+      hasResult ? "resolved" : "open",
+      matchNumber,
       startTime,
       endTime,
+      result,
     );
 
     const context = tournament
       ? `to **${tournament.name}**`
       : "as a **standalone match** (no tournament)";
+
+    if (hasResult) {
+      await interaction.reply(
+        ephemeral(
+          `✅ Resolved match **#${matchNumber}** added ${context}:\n` +
+            `**${teamA}** vs **${teamB}** (${type})\n` +
+            `🏁 Result: **${result}**`,
+        ),
+      );
+      if (tournament) {
+        await refreshDashboard(interaction.client, tournament.id);
+      }
+      return;
+    }
 
     const opensLine = startTime
       ? `⏳ Predictions open: ${toDiscordTimestamp(startTime)}`
@@ -169,7 +258,7 @@ module.exports = {
 
     await interaction.reply(
       ephemeral(
-        `✅ Match \`${info.lastInsertRowid}\` added ${context}:\n` +
+        `✅ Match **#${matchNumber}** added ${context}:\n` +
           `**${teamA}** vs **${teamB}** (${type})\n` +
           `${opensLine}\n` +
           `🔒 Predictions close: ${toDiscordTimestamp(endTime)}`,

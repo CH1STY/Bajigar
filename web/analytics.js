@@ -123,7 +123,8 @@ function computeBlock(matches, allPredictions, name) {
     .sort((a, b) => (a.end_time || 0) - (b.end_time || 0))
     .map((m) => ({
       matchId: m.id,
-      label: `#${m.id} ${m.team_a} v ${m.team_b}`,
+      matchNumber: m.match_number,
+      label: `#${m.match_number ?? m.id} ${m.team_a} v ${m.team_b}`,
       type: m.type,
       count: countByMatch.get(m.id) || 0,
       endTime: m.end_time,
@@ -173,7 +174,7 @@ function computeBlock(matches, allPredictions, name) {
     if (diff === 1) rec.near += 1;
     rec.preds.push({
       matchId: m.id,
-      label: `#${m.id} ${m.team_a} v ${m.team_b}`,
+      label: `#${m.match_number ?? m.id} ${m.team_a} v ${m.team_b}`,
       predicted: p.predicted_value,
       result: m.result,
       diff,
@@ -333,6 +334,7 @@ function computeBlock(matches, allPredictions, name) {
 
       return {
         id: m.id,
+        matchNumber: m.match_number,
         type: m.type,
         teamA: m.team_a,
         teamB: m.team_b,

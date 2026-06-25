@@ -272,7 +272,7 @@ function renderVolume(p, rows) {
   charts[id] = new Chart(document.getElementById(id), {
     type: "line",
     data: {
-      labels: rows.map((r) => `#${r.matchId}`),
+      labels: rows.map((r) => `#${r.matchNumber ?? r.matchId}`),
       datasets: [
         {
           label: "Predictions",
@@ -509,7 +509,7 @@ function renderMatchColumn(p, key, matches) {
   for (const m of matches) {
     const item = el("button", { className: "match-item", type: "button" });
     item.innerHTML = `
-      <span class="mi-id">#${m.id}</span>
+      <span class="mi-id">#${m.matchNumber ?? m.id}</span>
       <span class="mi-teams">${esc(m.teamA)} <em>v</em> ${esc(m.teamB)}</span>
       <span class="mi-meta">
         <span class="mi-type" title="${esc(m.type)}">${matchTypeIcon(m.type)}</span>
