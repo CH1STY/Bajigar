@@ -1157,6 +1157,128 @@ const WC_BRACKET = {
   },
 };
 
+/**
+ * Official 2026 FIFA World Cup knockout kick-off times by match number, stored
+ * as UTC instants (source: FIFA match schedule). Shown as the scheduled
+ * date/time until a match is actually added to the tournament, at which point
+ * the prediction-closing time is used instead. All bracket times are rendered
+ * in GMT+6 (Asia/Dhaka).
+ */
+const WC_SCHEDULE = {
+  73: "2026-06-28T19:00:00Z",
+  74: "2026-06-29T20:30:00Z",
+  75: "2026-06-30T01:00:00Z",
+  76: "2026-06-29T17:00:00Z",
+  77: "2026-06-30T21:00:00Z",
+  78: "2026-06-30T17:00:00Z",
+  79: "2026-07-01T01:00:00Z",
+  80: "2026-07-01T16:00:00Z",
+  81: "2026-07-02T00:00:00Z",
+  82: "2026-07-01T20:00:00Z",
+  83: "2026-07-02T23:00:00Z",
+  84: "2026-07-02T19:00:00Z",
+  85: "2026-07-03T03:00:00Z",
+  86: "2026-07-03T22:00:00Z",
+  87: "2026-07-04T01:30:00Z",
+  88: "2026-07-03T18:00:00Z",
+  89: "2026-07-04T21:00:00Z",
+  90: "2026-07-04T17:00:00Z",
+  91: "2026-07-05T20:00:00Z",
+  92: "2026-07-06T00:00:00Z",
+  93: "2026-07-06T19:00:00Z",
+  94: "2026-07-07T00:00:00Z",
+  95: "2026-07-07T16:00:00Z",
+  96: "2026-07-07T20:00:00Z",
+  97: "2026-07-09T20:00:00Z",
+  98: "2026-07-10T19:00:00Z",
+  99: "2026-07-11T21:00:00Z",
+  100: "2026-07-12T01:00:00Z",
+  101: "2026-07-14T19:00:00Z",
+  102: "2026-07-15T19:00:00Z",
+  103: "2026-07-18T21:00:00Z",
+  104: "2026-07-19T19:00:00Z",
+};
+
+/** Format an instant as a short Dhaka-time (GMT+6) date + time string. */
+function fmtDhaka(value) {
+  if (!value) return null;
+  const d = new Date(typeof value === "string" ? value : Number(value));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString("en-US", {
+    timeZone: "Asia/Dhaka",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+/** Human-readable description of how a bracket slot's team is determined. */
+function slotDescription(slot) {
+  if (!slot) return "To be determined";
+  if (slot.g && slot.pos === 1) return `Winner of Group ${slot.g}`;
+  if (slot.g && slot.pos === 2) return `Runner-up of Group ${slot.g}`;
+  if (slot.third)
+    return `Best 3rd-placed team (from Group ${slot.third.join("/")})`;
+  if (slot.win) return `Winner of Match ${slot.win}`;
+  if (slot.lose) return `Loser of Match ${slot.lose}`;
+  return "To be determined";
+}
+
+/*
+ * Lightweight, body-anchored tooltip used to explain the round-of-32 pairings.
+ * Anchored to <body> with fixed positioning so it is never clipped by the
+ * bracket's horizontally-clipped scroll container, and shown on hover, keyboard
+ * focus and tap for full accessibility.
+ */
+let bracketTipEl = null;
+function getBracketTip() {
+  if (!bracketTipEl) {
+    bracketTipEl = el("div", { className: "bx-tip", role: "tooltip" });
+    bracketTipEl.setAttribute("aria-hidden", "true");
+    document.body.append(bracketTipEl);
+    window.addEventListener("scroll", hideBracketTip, true);
+    window.addEventListener("resize", hideBracketTip);
+  }
+  return bracketTipEl;
+}
+
+function showBracketTip(anchor, text) {
+  const tip = getBracketTip();
+  tip.textContent = text;
+  tip.classList.add("visible");
+  tip.setAttribute("aria-hidden", "false");
+  const a = anchor.getBoundingClientRect();
+  const r = tip.getBoundingClientRect();
+  let left = a.left + a.width / 2 - r.width / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - r.width - 8));
+  let top = a.top - r.height - 8;
+  if (top < 8) top = a.bottom + 8;
+  tip.style.left = `${Math.round(left)}px`;
+  tip.style.top = `${Math.round(top)}px`;
+}
+
+function hideBracketTip() {
+  if (!bracketTipEl) return;
+  bracketTipEl.classList.remove("visible");
+  bracketTipEl.setAttribute("aria-hidden", "true");
+}
+
+function attachInfoTip(icon, text) {
+  const show = () => showBracketTip(icon, text);
+  icon.addEventListener("mouseenter", show);
+  icon.addEventListener("focus", show);
+  icon.addEventListener("mouseleave", hideBracketTip);
+  icon.addEventListener("blur", hideBracketTip);
+  icon.addEventListener("click", (e) => {
+    // Don't trigger the parent match's click (modal); show for touch users.
+    e.stopPropagation();
+    e.preventDefault();
+    show();
+  });
+}
+
 /** Index a tournament's matches by their (per-tournament) match number. */
 function matchesByNumber(t) {
   const map = new Map();
@@ -1272,7 +1394,7 @@ function assignThirdPlaces(t) {
   for (const slot of slotDefs) augment(slot, new Set());
 
   for (const [g, num] of groupToSlot) {
-    result.set(num, { team: groupToTeam.get(g), projected });
+    result.set(num, { team: groupToTeam.get(g), group: g, projected });
   }
   return result;
 }
@@ -1381,10 +1503,62 @@ function buildBracketMatch(t, num, byNumber, thirdByMatch) {
     )}</span>${score}</div>`;
   };
 
+  // Use the prediction-closing time once the match exists; otherwise the
+  // official scheduled kick-off. Both are rendered in GMT+6 (Dhaka) time.
+  const dateText = info.match
+    ? fmtDhaka(info.match.endTime)
+    : fmtDhaka(WC_SCHEDULE[num]);
+  const dateTitle = info.match
+    ? "Predictions close (GMT+6 Dhaka)"
+    : "Scheduled kick-off (GMT+6 Dhaka)";
+  const dateLine = dateText
+    ? `<div class="bx-date" title="${dateTitle}">${esc(dateText)}</div>`
+    : "";
+
+  // Round of 32 only: a visible info badge reveals how each side's team is
+  // determined (group winners / runners-up / best third-placed sides), plus the
+  // origin of the assigned third-placed team and whether it is final.
+  let r32Text = "";
+  if (num >= 73 && num <= 88) {
+    const slots = WC_BRACKET.slots[num] || [];
+    const thirdInfo = thirdByMatch ? thirdByMatch.get(num) : null;
+    const lines = [`Match ${num}`];
+    for (const slot of slots) {
+      let line = `• ${slotDescription(slot)}`;
+      if (slot.third && thirdInfo && thirdInfo.team) {
+        const tag = thirdInfo.projected ? "projected" : "confirmed";
+        line += `\n    ↳ currently ${thirdInfo.team} — 3rd place of Group ${thirdInfo.group} (${tag})`;
+      }
+      lines.push(line);
+    }
+    const anyProjected = info.a.projected || info.b.projected;
+    const bothReal = info.a.real && info.b.real;
+    if (anyProjected) {
+      lines.push("Projected from current standings — not final yet.");
+    } else if (bothReal) {
+      lines.push("Matchup confirmed.");
+    } else {
+      lines.push("Awaiting group-stage results.");
+    }
+    r32Text = lines.join("\n");
+  }
+  const infoBadge = r32Text
+    ? `<span class="bx-info" tabindex="0" role="button" aria-label="${esc(
+        r32Text,
+      )}">i</span>`
+    : "";
+
   box.innerHTML = `
-    <div class="bx-num">Match ${num}</div>
+    <div class="bx-num">Match ${num}${infoBadge}</div>
+    ${dateLine}
     ${teamRow(info.a)}
     ${teamRow(info.b)}`;
+
+  if (r32Text) {
+    const icon = box.querySelector(".bx-info");
+    if (icon) attachInfoTip(icon, r32Text);
+  }
+
   wrap.append(box);
   return wrap;
 }

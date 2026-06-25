@@ -790,6 +790,74 @@ table.standings-table {
   margin-bottom: 5px;
 }
 
+/* Round-of-32 "how were these teams chosen?" affordance. */
+.bx-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  font-style: normal;
+  line-height: 1;
+  cursor: help;
+  vertical-align: text-bottom;
+  user-select: none;
+  font-family: Georgia, "Times New Roman", serif;
+  transition: background 0.15s ease;
+}
+.bx-info:hover,
+.bx-info:focus-visible {
+  background: var(--accent);
+}
+.bx-info:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.5);
+}
+
+.bx-tip {
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel, #1a1d24);
+  color: var(--text, #fff);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  white-space: pre-line;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+.bx-tip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.bx-date {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--accent-2, var(--muted));
+  margin-bottom: 5px;
+  white-space: normal;
+  line-height: 1.15;
+}
+
 .bx-team {
   display: flex;
   align-items: center;
@@ -820,6 +888,10 @@ table.standings-table {
   font-size: 7px;
   margin-bottom: 2px;
 }
+.depth-4 .bx-date {
+  font-size: 7px;
+  margin-bottom: 2px;
+}
 .depth-4 .bx-team {
   gap: 4px;
   padding: 2px 0;
@@ -836,6 +908,10 @@ table.standings-table {
 }
 .depth-3 .bx-num {
   font-size: 8px;
+}
+.depth-3 .bx-date {
+  font-size: 8px;
+  margin-bottom: 3px;
 }
 .depth-3 .bx-score {
   font-size: 10.5px;
