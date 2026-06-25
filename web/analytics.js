@@ -6,10 +6,74 @@
 //   never included in any per-prediction breakdown — only aggregate counts
 //   (which are already public in Discord) ever reflect still-open matches.
 
+const fs = require("fs");
+const path = require("path");
 const db = require("../db/queries").db;
 const { predictionState } = require("../db/queries");
 const { parseFootballScore } = require("../utils/scoring");
 const { WEB_DEFAULT_TOURNAMENT } = require("../config/config");
+
+// --- World Cup team grouping (web UI only; no DB involvement) ----------------
+// Tournaments whose name contains "world cup" show their League Table split into
+// Group A/B/C… instead of one big table. The team→group mapping lives in a
+// separate JSON file so the database is untouched.
+
+function loadGroupConfig() {
+  try {
+    const raw = fs.readFileSync(
+      path.join(__dirname, "..", "config", "world-cup-groups.json"),
+      "utf8",
+    );
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+const GROUP_CONFIG = loadGroupConfig();
+
+/**
+ * Resolve the group definition for a tournament, if any.
+ * Only applies to tournaments whose name contains "world cup" AND have an entry
+ * (matched case-insensitively by exact name) in world-cup-groups.json.
+ * @param {string} tournamentName
+ * @returns {{ order: string[], teamGroup: Map<string,string> } | null}
+ */
+function getTournamentGroups(tournamentName) {
+  if (!tournamentName || !tournamentName.toLowerCase().includes("world cup")) {
+    return null;
+  }
+  const key = Object.keys(GROUP_CONFIG).find(
+    (k) => k.toLowerCase() === tournamentName.toLowerCase(),
+  );
+  if (!key) return null;
+  const groups = GROUP_CONFIG[key];
+  if (!groups || typeof groups !== "object") return null;
+
+  const order = Object.keys(groups).filter((g) => Array.isArray(groups[g]));
+  const teamGroup = new Map();
+  for (const label of order) {
+    for (const team of groups[label]) {
+      teamGroup.set(String(team).trim().toLowerCase(), label);
+    }
+  }
+  return order.length ? { order, teamGroup } : null;
+}
+
+/**
+ * Attach grouping metadata to a tournament block so the web UI can split the
+ * League Table by group. Mutates the block in place.
+ *   block.grouped    = true
+ *   block.groups     = ordered group labels (e.g. ["A","B",…])
+ *   block.teamGroups = { lowercased team name: group label }
+ * @param {object} block
+ * @param {{ order: string[], teamGroup: Map<string,string> }} groups
+ */
+function annotateGroups(block, groups) {
+  block.grouped = true;
+  block.groups = groups.order.slice();
+  block.teamGroups = Object.fromEntries(groups.teamGroup);
+}
 
 // --- Raw fetch helpers ------------------------------------------------------
 
@@ -389,6 +453,8 @@ function buildAnalytics(nameOf) {
   const tournaments = allTournamentsStmt.all().map((t) => {
     const tMatches = matches.filter((m) => m.tournament_id === t.id);
     const block = computeBlock(tMatches, predictions, name);
+    const groups = getTournamentGroups(t.name);
+    if (groups) annotateGroups(block, groups);
     return {
       id: t.id,
       name: t.name,

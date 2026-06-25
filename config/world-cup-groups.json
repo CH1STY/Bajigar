@@ -1,0 +1,17 @@
+{
+  "_comment": "Web UI only. Maps teams to groups for tournaments whose name contains 'world cup'. Keyed by tournament name (case-insensitive, must match exactly). Teams not listed (or matches between two different groups, e.g. knockout) appear under 'Knockout'. Both name spellings are listed where the data uses aliases. This file does NOT touch the database.",
+  "World Cup 2026": {
+    "A": ["Mexico", "South Africa", "South Korea", "Czechia"],
+    "B": ["Canada", "Bosnia and Herzegovina", "Qatar", "Switzerland"],
+    "C": ["USA", "Paraguay", "Australia", "Türkiye"],
+    "D": ["Haiti", "Scotland", "Brazil", "Morocco"],
+    "E": ["Ivory Coast", "Ecuador", "Curaçao", "Germany"],
+    "F": ["Netherlands", "Japan", "Sweden", "Tunisia"],
+    "G": ["Saudi Arabia", "Uruguay", "Spain", "Cabo Verde"],
+    "H": ["Iran", "New Zealand", "Belgium", "Egypt"],
+    "I": ["France", "Senegal", "Iraq", "Norway"],
+    "J": ["Argentina", "Algeria", "Austria", "Jordan"],
+    "K": ["Ghana", "Panama", "Croatia", "England"],
+    "L": ["Uzbekistan", "Colombia", "Portugal", "DR Congo"]
+  }
+}

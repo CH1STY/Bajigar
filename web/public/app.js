@@ -191,7 +191,7 @@ function renderHiddenNote(p, o) {
   }
 }
 
-function barChart(id, labels, values, label, colorFn) {
+function barChart(id, labels, values, label, colorFn, opts) {
   destroy(id);
   const ctx = document.getElementById(id);
   charts[id] = new Chart(ctx, {
@@ -211,6 +211,7 @@ function barChart(id, labels, values, label, colorFn) {
     },
     options: {
       responsive: true,
+      ...(opts || {}),
       plugins: { legend: { display: false } },
       scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
     },
@@ -980,12 +981,166 @@ function computeLeagueTable(matchList) {
 function renderTeamTable(container, t) {
   if (!container) return;
   container.innerHTML = "";
+
+  // World Cup tournaments: one League Table per group (A, B, C…).
+  if (t.grouped && Array.isArray(t.groups) && t.groups.length && t.teamGroups) {
+    renderGroupedLeagueTables(container, t);
+    return;
+  }
+
   const rows = computeLeagueTable(t.matchList);
   if (!rows.length) {
     container.innerHTML =
       '<div class="empty">No resolved football matches yet.</div>';
     return;
   }
+  container.append(buildLeagueTableEl(rows));
+}
+
+/** Render one League Table per group for a grouped (World Cup) tournament. */
+function renderGroupedLeagueTables(container, t) {
+  const teamGroups = t.teamGroups || {};
+  const inGroup = (name, g) =>
+    teamGroups[String(name).trim().toLowerCase()] === g;
+
+  for (const g of t.groups) {
+    // Only count matches played strictly within this group.
+    const groupMatches = (t.matchList || []).filter(
+      (m) => inGroup(m.teamA, g) && inGroup(m.teamB, g),
+    );
+    const rows = computeLeagueTable(groupMatches);
+
+    const section = el("div", { className: "group-table" });
+    const head = el("h3", { className: "group-table-head" });
+    head.innerHTML = `Group ${esc(g)} <span class="col-count">${rows.length}</span>`;
+    section.append(head);
+    if (rows.length) {
+      section.append(buildLeagueTableEl(rows));
+    } else {
+      section.append(
+        el("div", {
+          className: "empty small",
+          textContent: "No resolved football matches yet.",
+        }),
+      );
+    }
+    container.append(section);
+  }
+}
+
+/**
+ * Collect and rank every group's 3rd-placed team for a grouped tournament.
+ * Sort priority: 1) points, 2) goal difference (then goals for, then name).
+ * Returns [] when the tournament isn't grouped.
+ */
+function computeThirdPlaced(t) {
+  if (
+    !(t.grouped && Array.isArray(t.groups) && t.groups.length && t.teamGroups)
+  ) {
+    return [];
+  }
+  const teamGroups = t.teamGroups || {};
+  const inGroup = (name, g) =>
+    teamGroups[String(name).trim().toLowerCase()] === g;
+
+  const thirdPlaced = [];
+  for (const g of t.groups) {
+    const groupMatches = (t.matchList || []).filter(
+      (m) => inGroup(m.teamA, g) && inGroup(m.teamB, g),
+    );
+    const rows = computeLeagueTable(groupMatches);
+    // Top two of every group advance automatically; capture the 3rd-placed team.
+    if (rows.length >= 3) {
+      thirdPlaced.push({ ...rows[2], group: g });
+    }
+  }
+  thirdPlaced.sort(
+    (a, b) =>
+      b.points - a.points ||
+      b.gd - a.gd ||
+      b.gf - a.gf ||
+      a.team.localeCompare(b.team),
+  );
+  thirdPlaced.forEach((r, i) => (r.rank = i + 1));
+  return thirdPlaced;
+}
+
+/**
+ * Render the Best Third-Placed Teams ranking into its top-row card.
+ * The card is hidden for tournaments that aren't grouped (non-World Cup).
+ * The top 8 qualify for the next round (World Cup 2026 format).
+ */
+function renderThirdPlacedCard(t) {
+  const card = document.getElementById("tn-third-card");
+  const container = document.getElementById("tn-third-table");
+  if (!card || !container) return;
+
+  const thirdPlaced = computeThirdPlaced(t);
+  if (!thirdPlaced.length) {
+    card.style.display = "none";
+    container.innerHTML = "";
+    return;
+  }
+  card.style.display = "";
+  container.innerHTML = "";
+  container.append(buildThirdPlacedTableEl(thirdPlaced));
+}
+
+/** Build the sortable Best Third-Placed Teams table element. */
+function buildThirdPlacedTableEl(thirdPlaced) {
+  const QUALIFY = 8;
+  const fmtGd = (n) => (n > 0 ? `+${n}` : String(n));
+  const columns = [
+    {
+      label: "Rank",
+      numeric: true,
+      value: (r) => r.rank,
+      render: (r) => r.rank,
+    },
+    {
+      label: "Group",
+      value: (r) => r.group,
+      render: (r) => esc(r.group),
+    },
+    { label: "Team", value: (r) => r.team, render: (r) => esc(r.team) },
+    {
+      label: "P",
+      numeric: true,
+      value: (r) => r.played,
+      render: (r) => r.played,
+    },
+    { label: "W", numeric: true, value: (r) => r.won, render: (r) => r.won },
+    {
+      label: "D",
+      numeric: true,
+      value: (r) => r.drawn,
+      render: (r) => r.drawn,
+    },
+    { label: "L", numeric: true, value: (r) => r.lost, render: (r) => r.lost },
+    { label: "GF", numeric: true, value: (r) => r.gf, render: (r) => r.gf },
+    { label: "GA", numeric: true, value: (r) => r.ga, render: (r) => r.ga },
+    {
+      label: "GD",
+      numeric: true,
+      value: (r) => r.gd,
+      render: (r) => fmtGd(r.gd),
+    },
+    {
+      label: "Pts",
+      numeric: true,
+      value: (r) => r.points,
+      render: (r) => `<strong>${r.points}</strong>`,
+    },
+  ];
+  return sortableTable(thirdPlaced, columns, {
+    className: "data-table league-table",
+    rowClass: (r) => (r.rank <= QUALIFY ? "top-rank" : ""),
+    emptyText: "No third-placed teams yet.",
+  });
+}
+
+/** Build a sortable League Table element from precomputed rows. */
+function buildLeagueTableEl(rows) {
   const fmtGd = (n) => (n > 0 ? `+${n}` : String(n));
   const columns = [
     { label: "#", numeric: true, value: (r) => r.pos, render: (r) => r.pos },
@@ -1019,13 +1174,11 @@ function renderTeamTable(container, t) {
       render: (r) => `<strong>${r.points}</strong>`,
     },
   ];
-  container.append(
-    sortableTable(rows, columns, {
-      className: "data-table league-table",
-      rowClass: (r) => (r.pos <= 3 ? "top-rank" : ""),
-      emptyText: "No resolved football matches yet.",
-    }),
-  );
+  return sortableTable(rows, columns, {
+    className: "data-table league-table",
+    rowClass: (r) => (r.pos <= 3 ? "top-rank" : ""),
+    emptyText: "No resolved football matches yet.",
+  });
 }
 
 /** Resolved football matches (with a parseable X-Y score) for a tournament. */
@@ -1051,6 +1204,7 @@ function renderTeamAnalytics(t) {
   renderTeamBars("tn-team-ga", rows, (r) => r.ga, "Goals conceded", false);
   renderTeamBars("tn-team-wins", rows, (r) => r.won, "Wins", true);
   renderTeamBars("tn-team-gd", rows, (r) => r.gd, "Goal difference", true);
+  renderThirdPlacedCard(t);
   renderTeamHighlights(games);
   renderTeamTable(document.getElementById("tn-team-table"), t);
 }
@@ -1102,6 +1256,8 @@ function renderTeamBars(id, rows, valueFn, label, highFirst) {
     sorted.map((r) => r.team),
     sorted.map((r) => valueFn(r)),
     label,
+    null,
+    { maintainAspectRatio: false },
   );
 }
 

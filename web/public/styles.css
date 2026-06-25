@@ -143,6 +143,21 @@ main {
   margin-bottom: 18px;
 }
 
+.card-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Team Standings: keep every chart / table card the same height. */
+#tn-sub-teams .card-grid .card canvas {
+  height: 300px !important;
+  max-height: 300px;
+}
+
+#tn-third-table {
+  height: 300px;
+  overflow-y: auto;
+}
+
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -624,6 +639,22 @@ table.standings-table {
 
 .match-col-head.resolved {
   border-bottom-color: rgba(155, 89, 182, 0.5);
+}
+
+/* Grouped League Table (World Cup): one mini-table per group. */
+.group-table {
+  margin-bottom: 22px;
+}
+
+.group-table-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  padding-bottom: 6px;
+  border-bottom: 2px solid rgba(88, 101, 242, 0.6);
 }
 
 .col-count {
