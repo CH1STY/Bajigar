@@ -16,6 +16,37 @@
   box-sizing: border-box;
 }
 
+/* Smooth scrolling throughout the app, with momentum scrolling on touch
+   devices for the overflow containers (tables, bracket, etc.). */
+html {
+  scroll-behavior: smooth;
+}
+
+body,
+.table-wrap,
+.bracket-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Horizontal-only scrollers: contain sideways over-scroll (so reaching the
+   end doesn't trigger browser back-navigation) while letting vertical wheel
+   scrolling chain through to the page. */
+.table-wrap,
+.bracket-scroll {
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html,
+  body,
+  .table-wrap,
+  .bracket-scroll {
+    scroll-behavior: auto;
+  }
+}
+
 body {
   margin: 0;
   font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -26,6 +57,7 @@ body {
   );
   color: var(--text);
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .topbar {
@@ -715,16 +747,41 @@ table.standings-table {
 }
 
 /* ---- Knockout bracket (World Cup fixtures diagram) ---- */
+/* When the standings card holds the World Cup bracket, drop the wrapper's
+   horizontal overflow clipping so the full-bleed bracket can escape to the
+   viewport edges. (Normal league tables keep .table-wrap's scroll.) */
+.table-wrap.kt-standings {
+  overflow: visible;
+}
+
 .bracket-scroll {
-  overflow-x: hidden;
-  padding-bottom: 10px;
+  /* Full-bleed: break out of the centered 1280px main column so the bracket
+     uses the entire viewport width. This margin technique stays correctly
+     centered no matter how deeply the element is nested (unlike left: 50%). */
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  padding: 16px 28px;
+  overflow-x: auto;
+  /* Themed band behind the bracket so the page background no longer shows
+     through the full-bleed area. */
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 
 .bracket {
   display: flex;
   width: 100%;
-  min-width: 0;
+  /* Keep columns wide enough for team names to be readable. On viewports
+     narrower than this the .bracket-scroll wrapper scrolls horizontally; on
+     wider viewports the bracket grows to fill the full (full-bleed) width. */
+  min-width: 1000px;
   align-items: stretch;
+  /* Establish a query container so bracket type can scale with available
+     width via cqw units. */
+  container-type: inline-size;
+  container-name: bracket;
 }
 
 .bracket-col {
@@ -880,16 +937,16 @@ table.standings-table {
 /* Per-round scaling: outermost rounds (most columns) get the smallest type so
    the whole two-sided tree fits the panel; type grows toward the centre. */
 .depth-4 .bx-name {
-  font-size: 9px;
+  font-size: clamp(9px, 1.5cqw, 14px);
   white-space: normal;
   line-height: 1.1;
 }
 .depth-4 .bx-num {
-  font-size: 7px;
+  font-size: clamp(7px, 1.1cqw, 11px);
   margin-bottom: 2px;
 }
 .depth-4 .bx-date {
-  font-size: 7px;
+  font-size: clamp(7px, 1.1cqw, 11px);
   margin-bottom: 2px;
 }
 .depth-4 .bx-team {
@@ -897,40 +954,40 @@ table.standings-table {
   padding: 2px 0;
 }
 .depth-4 .bx-score {
-  font-size: 9px;
+  font-size: clamp(9px, 1.5cqw, 14px);
   min-width: 10px;
 }
 
 .depth-3 .bx-name {
-  font-size: 10.5px;
+  font-size: clamp(10.5px, 1.7cqw, 16px);
   white-space: normal;
   line-height: 1.12;
 }
 .depth-3 .bx-num {
-  font-size: 8px;
+  font-size: clamp(8px, 1.25cqw, 12px);
 }
 .depth-3 .bx-date {
-  font-size: 8px;
+  font-size: clamp(8px, 1.25cqw, 12px);
   margin-bottom: 3px;
 }
 .depth-3 .bx-score {
-  font-size: 10.5px;
+  font-size: clamp(10.5px, 1.7cqw, 16px);
   min-width: 12px;
 }
 
 .depth-2 .bx-name {
-  font-size: 12px;
+  font-size: clamp(12px, 1.9cqw, 18px);
 }
 .depth-2 .bx-num {
-  font-size: 9px;
+  font-size: clamp(9px, 1.4cqw, 13px);
 }
 
 .depth-1 .bx-name {
-  font-size: 13px;
+  font-size: clamp(13px, 2cqw, 20px);
 }
 
 .depth-0 .bx-name {
-  font-size: 14px;
+  font-size: clamp(14px, 2.2cqw, 22px);
 }
 
 .bx-team.placeholder .bx-name {

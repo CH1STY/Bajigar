@@ -990,10 +990,14 @@ function renderTeamTable(container, t) {
   if (t.grouped && Array.isArray(t.groups) && t.groups.length && t.teamGroups) {
     if (titleEl) titleEl.textContent = "Group Tables";
     if (hintEl) hintEl.textContent = "group stage · top teams advance";
+    // Let the knockout bracket break out of the .table-wrap overflow context
+    // so its full-bleed wrapper can reach the viewport edges.
+    container.classList.add("kt-standings");
     renderGroupedStandings(container, t);
     return;
   }
 
+  container.classList.remove("kt-standings");
   if (titleEl) titleEl.textContent = "League Table";
   if (hintEl) {
     hintEl.textContent =
