@@ -86,6 +86,76 @@ function getTournamentMatches(tournamentId) {
   return getTournamentMatchesStmt.all(tournamentId);
 }
 
+// --- Team name maintenance --------------------------------------------------
+// Team names are plain strings stored on each match (team_a / team_b) and, for
+// cricket, also in matches.result (winner) and predictions.predicted_value
+// (predicted winner). Renaming a team therefore updates all of those places so
+// spelling variants can be merged into one canonical name. Matching is
+// case-insensitive so "brazil"/"Brazil" collapse together. Scope is a single
+// number group: a tournament id, or NULL for the standalone group.
+const distinctTeamsStmt = db.prepare(`
+  SELECT team AS team FROM (
+    SELECT team_a AS team FROM matches WHERE tournament_id IS ?
+    UNION
+    SELECT team_b AS team FROM matches WHERE tournament_id IS ?
+  )
+  ORDER BY team COLLATE NOCASE ASC
+`);
+const renameTeamAStmt = db.prepare(
+  "UPDATE matches SET team_a = ? WHERE tournament_id IS ? AND team_a = ? COLLATE NOCASE",
+);
+const renameTeamBStmt = db.prepare(
+  "UPDATE matches SET team_b = ? WHERE tournament_id IS ? AND team_b = ? COLLATE NOCASE",
+);
+const renameCricketResultStmt = db.prepare(
+  "UPDATE matches SET result = ? WHERE tournament_id IS ? AND type = 'cricket' AND result = ? COLLATE NOCASE",
+);
+const renameCricketPredictionStmt = db.prepare(`
+  UPDATE predictions
+  SET predicted_value = ?
+  WHERE predicted_value = ? COLLATE NOCASE
+    AND match_id IN (
+      SELECT id FROM matches WHERE type = 'cricket' AND tournament_id IS ?
+    )
+`);
+
+/**
+ * @param {number|null} tournamentId - tournament id, or null for the standalone group
+ * @returns {string[]} distinct team names used in that group (case-insensitive sort)
+ */
+function getTeamsInTournament(tournamentId) {
+  const tid = tournamentId ?? null;
+  return distinctTeamsStmt.all(tid, tid).map((r) => r.team);
+}
+
+/**
+ * Rename (and thereby merge) a team within a single tournament / standalone group.
+ * Updates match line-ups plus cricket results and cricket predicted winners.
+ * Runs in one transaction.
+ * @param {number|null} tournamentId - tournament id, or null for the standalone group
+ * @param {string} fromName - the (mis-spelled) name to replace, matched case-insensitively
+ * @param {string} toName - the canonical name to use
+ * @returns {{ teamA:number, teamB:number, results:number, predictions:number, total:number }}
+ */
+function renameTeamInTournament(tournamentId, fromName, toName) {
+  const tid = tournamentId ?? null;
+  const from = fromName.trim();
+  const to = toName.trim();
+  return transaction(() => {
+    const teamA = renameTeamAStmt.run(to, tid, from).changes;
+    const teamB = renameTeamBStmt.run(to, tid, from).changes;
+    const results = renameCricketResultStmt.run(to, tid, from).changes;
+    const predictions = renameCricketPredictionStmt.run(to, from, tid).changes;
+    return {
+      teamA,
+      teamB,
+      results,
+      predictions,
+      total: teamA + teamB + results + predictions,
+    };
+  });
+}
+
 // --- Per-tournament match numbers -------------------------------------------
 // Matches are shown and addressed by a per-tournament sequence number rather
 // than the internal auto-increment id. Standalone matches (tournament_id IS
@@ -318,6 +388,8 @@ module.exports = {
   getTournamentByChannel,
   getMatch,
   getTournamentMatches,
+  getTeamsInTournament,
+  renameTeamInTournament,
   getMatchByNumber,
   getUsedMatchNumbers,
   nextMatchNumber,

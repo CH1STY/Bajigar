@@ -155,6 +155,27 @@ Manually re-posts/refreshes the tournament's live dashboard message.
 
 ---
 
+### `/team-rename`
+
+Fixes a misspelled team name by renaming **and merging** it within one
+tournament. Matching is case-insensitive, so variants like `brazil` and `Brazil`
+collapse into the corrected name. The tournament is taken from the current
+channel (add `tournament_id` to target another). The `from` field autocompletes
+with the team names already used in that tournament.
+
+```text
+/team-rename from: Cape Verde  to: Cabo Verde
+```
+
+```text
+/team-rename from: Czechia  to: Czech Republic  tournament_id: 1
+```
+
+➡️ Updates every match line-up using the old name, plus — for cricket — the
+stored winner and everyone's predicted winner, then refreshes the dashboard.
+
+---
+
 ## 🌍 Prediction commands
 
 > Accepted only while a match is **open** and before its `end_time`. You can
