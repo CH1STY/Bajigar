@@ -667,6 +667,340 @@ table.standings-table {
   font-weight: 600;
 }
 
+/* World Cup standings: Groups / Knockout toggle. */
+.kt-toggle {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.kt-tab {
+  flex: 1 1 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.kt-tab:hover {
+  border-color: var(--accent);
+  background: rgba(155, 89, 182, 0.12);
+}
+
+.kt-tab.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 2px 12px rgba(155, 89, 182, 0.4);
+}
+
+.kt-view {
+  display: none;
+}
+
+.kt-view.active {
+  display: block;
+}
+
+/* ---- Knockout bracket (World Cup fixtures diagram) ---- */
+.bracket-scroll {
+  overflow-x: hidden;
+  padding-bottom: 10px;
+}
+
+.bracket {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.bracket-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.bracket-col-title {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 4px 0 12px;
+}
+
+.bracket-round {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  padding: 0 6px;
+}
+
+/* Each match fills one slot; halving each round keeps centres aligned. */
+.bracket-round .bx-match {
+  position: relative;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+}
+
+.bx-box {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 5px 6px;
+  margin: 5px 0;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+}
+
+.bx-box.clickable {
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.bx-box.clickable:hover {
+  border-color: var(--accent);
+  background: rgba(155, 89, 182, 0.12);
+}
+
+.bx-num {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+
+.bx-team {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.bx-team + .bx-team {
+  border-top: 1px solid var(--line);
+}
+
+.bx-name {
+  flex: 1 1 auto;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Per-round scaling: outermost rounds (most columns) get the smallest type so
+   the whole two-sided tree fits the panel; type grows toward the centre. */
+.depth-4 .bx-name {
+  font-size: 9px;
+  white-space: normal;
+  line-height: 1.1;
+}
+.depth-4 .bx-num {
+  font-size: 7px;
+  margin-bottom: 2px;
+}
+.depth-4 .bx-team {
+  gap: 4px;
+  padding: 2px 0;
+}
+.depth-4 .bx-score {
+  font-size: 9px;
+  min-width: 10px;
+}
+
+.depth-3 .bx-name {
+  font-size: 10.5px;
+  white-space: normal;
+  line-height: 1.12;
+}
+.depth-3 .bx-num {
+  font-size: 8px;
+}
+.depth-3 .bx-score {
+  font-size: 10.5px;
+  min-width: 12px;
+}
+
+.depth-2 .bx-name {
+  font-size: 12px;
+}
+.depth-2 .bx-num {
+  font-size: 9px;
+}
+
+.depth-1 .bx-name {
+  font-size: 13px;
+}
+
+.depth-0 .bx-name {
+  font-size: 14px;
+}
+
+.bx-team.placeholder .bx-name {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.bx-team.winner .bx-name {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.bx-team.projected .bx-name {
+  color: var(--text);
+  font-style: italic;
+  text-decoration: underline dotted var(--muted);
+  text-underline-offset: 3px;
+}
+
+.bx-score {
+  flex: 0 0 auto;
+  min-width: 16px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Two-sided bracket: the left half points its elbows right and the right half
+   mirrors them pointing left, both converging on the centre Final. */
+.bx-box {
+  position: relative;
+}
+
+/* Vertical joiner linking each pair of matches to the next round. Skipped on
+   the inner column, whose single match feeds the Final with a straight line. */
+.side-left:not(.side-inner) .bx-match::after,
+.side-right:not(.side-inner) .bx-match::after {
+  content: "";
+  position: absolute;
+  width: 2px;
+  height: 50%;
+  background: var(--line);
+}
+
+.side-left:not(.side-inner) .bx-match::after {
+  left: calc(100% + 6px);
+}
+
+.side-right:not(.side-inner) .bx-match::after {
+  right: calc(100% + 6px);
+}
+
+.side-left:not(.side-inner) .bx-match:nth-child(odd)::after,
+.side-right:not(.side-inner) .bx-match:nth-child(odd)::after {
+  top: 50%;
+}
+
+.side-left:not(.side-inner) .bx-match:nth-child(even)::after,
+.side-right:not(.side-inner) .bx-match:nth-child(even)::after {
+  bottom: 50%;
+}
+
+/* Outgoing horizontal stub toward the centre. */
+.side-left .bx-box::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  width: 6px;
+  height: 2px;
+  background: var(--line);
+}
+
+.side-right .bx-box::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  width: 6px;
+  height: 2px;
+  background: var(--line);
+}
+
+/* Incoming horizontal stub from the previous round (not on the outer R32). */
+.side-left:not(.side-outer) .bx-box::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  width: 6px;
+  height: 2px;
+  background: var(--line);
+}
+
+.side-right:not(.side-outer) .bx-box::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  width: 6px;
+  height: 2px;
+  background: var(--line);
+}
+
+/* The Final receives a straight line in from each side. */
+.bracket-final {
+  justify-content: center;
+}
+
+.bracket-final .bracket-round {
+  justify-content: center;
+}
+
+.bracket-final .bx-box::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  width: 6px;
+  height: 2px;
+  background: var(--line);
+}
+
+.bracket-final .bx-box::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  width: 6px;
+  height: 2px;
+  background: var(--line);
+}
+
+.bracket-third {
+  margin-top: 22px;
+  max-width: 320px;
+}
+
+.bracket-note {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .match-list {
   display: flex;
   flex-direction: column;

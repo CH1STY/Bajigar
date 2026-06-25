@@ -982,10 +982,22 @@ function renderTeamTable(container, t) {
   if (!container) return;
   container.innerHTML = "";
 
-  // World Cup tournaments: one League Table per group (A, B, C…).
+  const titleEl = document.getElementById("tn-team-table-title");
+  const hintEl = document.getElementById("tn-team-table-hint");
+
+  // World Cup tournaments: per-group League Tables plus a Knockout view,
+  // switchable via a Groups/Knockout toggle.
   if (t.grouped && Array.isArray(t.groups) && t.groups.length && t.teamGroups) {
-    renderGroupedLeagueTables(container, t);
+    if (titleEl) titleEl.textContent = "Group Tables";
+    if (hintEl) hintEl.textContent = "group stage · top teams advance";
+    renderGroupedStandings(container, t);
     return;
+  }
+
+  if (titleEl) titleEl.textContent = "League Table";
+  if (hintEl) {
+    hintEl.textContent =
+      "W = 3 · D = 1 · L = 0 · from resolved football scores";
   }
 
   const rows = computeLeagueTable(t.matchList);
@@ -995,6 +1007,462 @@ function renderTeamTable(container, t) {
     return;
   }
   container.append(buildLeagueTableEl(rows));
+}
+
+/**
+ * Count resolved football matches played strictly within a single group.
+ * Used to decide which tab opens by default once the group stage is complete.
+ */
+function countResolvedGroupMatches(t) {
+  const teamGroups = t.teamGroups || {};
+  const groupOf = (name) => teamGroups[String(name).trim().toLowerCase()];
+  let count = 0;
+  for (const m of t.matchList || []) {
+    if (m.type !== "football" || m.status !== "resolved" || !m.result) continue;
+    const ga = groupOf(m.teamA);
+    const gb = groupOf(m.teamB);
+    if (ga && gb && ga === gb) count++;
+  }
+  return count;
+}
+
+/**
+ * Render the World Cup standings card: a Groups/Knockout toggle on top of the
+ * per-group League Tables and a list of knockout (cross-group) matches.
+ */
+function renderGroupedStandings(container, t) {
+  // Once all 72 group-stage games are resolved, default to the Knockout tab.
+  const GROUP_STAGE_GAMES = 72;
+  const groupStageDone = countResolvedGroupMatches(t) >= GROUP_STAGE_GAMES;
+
+  const toggle = el("div", { className: "kt-toggle", role: "tablist" });
+  const groupsBtn = el("button", {
+    className: groupStageDone ? "kt-tab" : "kt-tab active",
+    type: "button",
+    textContent: "Groups",
+  });
+  groupsBtn.dataset.view = "groups";
+  const knockoutBtn = el("button", {
+    className: groupStageDone ? "kt-tab active" : "kt-tab",
+    type: "button",
+    textContent: "Knockout",
+  });
+  knockoutBtn.dataset.view = "knockout";
+  toggle.append(groupsBtn, knockoutBtn);
+
+  const groupsView = el("div", {
+    className: groupStageDone ? "kt-view" : "kt-view active",
+  });
+  renderGroupedLeagueTables(groupsView, t);
+
+  const knockoutView = el("div", {
+    className: groupStageDone ? "kt-view active" : "kt-view",
+  });
+  renderKnockoutBracket(knockoutView, t);
+
+  const swap = (view) => {
+    const groups = view === "groups";
+    groupsBtn.classList.toggle("active", groups);
+    knockoutBtn.classList.toggle("active", !groups);
+    groupsView.classList.toggle("active", groups);
+    knockoutView.classList.toggle("active", !groups);
+  };
+  groupsBtn.addEventListener("click", () => swap("groups"));
+  knockoutBtn.addEventListener("click", () => swap("knockout"));
+
+  container.append(toggle, groupsView, knockoutView);
+}
+
+/**
+ * FIFA World Cup 2026 knockout bracket template (source: Wikipedia / FIFA
+ * regulations). Match numbers follow the official schedule: group stage is
+ * 1–72, the knockout stage is 73–104. For each match we record the two
+ * "slots" that feed it, so the diagram can show real teams when a match exists
+ * in the tournament data, or a descriptive placeholder otherwise.
+ *
+ * Slot kinds:
+ *   { g: "A", pos: 1 } group winner; { g: "A", pos: 2 } group runner-up
+ *   { third: ["A","B","C","D","F"] } one of the best third-placed teams
+ *   { win: 73 } winner of match 73; { lose: 101 } loser of match 101
+ */
+const WC_BRACKET = {
+  // Round columns, in top-to-bottom bracket order so the tree lines up.
+  rounds: [
+    {
+      name: "Round of 32",
+      matches: [74, 77, 73, 75, 83, 84, 81, 82, 76, 78, 79, 80, 86, 88, 85, 87],
+    },
+    { name: "Round of 16", matches: [89, 90, 93, 94, 91, 92, 95, 96] },
+    { name: "Quarter-finals", matches: [97, 98, 99, 100] },
+    { name: "Semi-finals", matches: [101, 102] },
+    { name: "Final", matches: [104] },
+  ],
+  slots: {
+    73: [
+      { g: "A", pos: 2 },
+      { g: "B", pos: 2 },
+    ],
+    74: [{ g: "E", pos: 1 }, { third: ["A", "B", "C", "D", "F"] }],
+    75: [
+      { g: "F", pos: 1 },
+      { g: "C", pos: 2 },
+    ],
+    76: [
+      { g: "C", pos: 1 },
+      { g: "F", pos: 2 },
+    ],
+    77: [{ g: "I", pos: 1 }, { third: ["C", "D", "F", "G", "H"] }],
+    78: [
+      { g: "E", pos: 2 },
+      { g: "I", pos: 2 },
+    ],
+    79: [{ g: "A", pos: 1 }, { third: ["C", "E", "F", "H", "I"] }],
+    80: [{ g: "L", pos: 1 }, { third: ["E", "H", "I", "J", "K"] }],
+    81: [{ g: "D", pos: 1 }, { third: ["B", "E", "F", "I", "J"] }],
+    82: [{ g: "G", pos: 1 }, { third: ["A", "E", "H", "I", "J"] }],
+    83: [
+      { g: "K", pos: 2 },
+      { g: "L", pos: 2 },
+    ],
+    84: [
+      { g: "H", pos: 1 },
+      { g: "J", pos: 2 },
+    ],
+    85: [{ g: "B", pos: 1 }, { third: ["E", "F", "G", "I", "J"] }],
+    86: [
+      { g: "J", pos: 1 },
+      { g: "H", pos: 2 },
+    ],
+    87: [{ g: "K", pos: 1 }, { third: ["D", "E", "I", "J", "L"] }],
+    88: [
+      { g: "D", pos: 2 },
+      { g: "G", pos: 2 },
+    ],
+    89: [{ win: 74 }, { win: 77 }],
+    90: [{ win: 73 }, { win: 75 }],
+    91: [{ win: 76 }, { win: 78 }],
+    92: [{ win: 79 }, { win: 80 }],
+    93: [{ win: 83 }, { win: 84 }],
+    94: [{ win: 81 }, { win: 82 }],
+    95: [{ win: 86 }, { win: 88 }],
+    96: [{ win: 85 }, { win: 87 }],
+    97: [{ win: 89 }, { win: 90 }],
+    98: [{ win: 93 }, { win: 94 }],
+    99: [{ win: 91 }, { win: 92 }],
+    100: [{ win: 95 }, { win: 96 }],
+    101: [{ win: 97 }, { win: 98 }],
+    102: [{ win: 99 }, { win: 100 }],
+    103: [{ lose: 101 }, { lose: 102 }],
+    104: [{ win: 101 }, { win: 102 }],
+  },
+};
+
+/** Index a tournament's matches by their (per-tournament) match number. */
+function matchesByNumber(t) {
+  const map = new Map();
+  for (const m of t.matchList || []) {
+    if (m.matchNumber != null) map.set(m.matchNumber, m);
+  }
+  return map;
+}
+
+/**
+ * Winner/loser of a resolved match, or null when undecided. Penalty shootouts
+ * (a level full-time score) can't be derived from the stored scoreline, so a
+ * drawn result yields null and the bracket keeps the placeholder.
+ */
+function decisiveTeam(m, which) {
+  if (!m || m.type !== "football" || m.status !== "resolved" || !m.result) {
+    return null;
+  }
+  const sc = parseScore(m.result);
+  if (!sc || sc.a === sc.b) return null;
+  const winner = sc.a > sc.b ? m.teamA : m.teamB;
+  const loser = sc.a > sc.b ? m.teamB : m.teamA;
+  return which === "win" ? winner : loser;
+}
+
+/**
+ * The team finishing in `pos` (1 = winner, 2 = runner-up) of a group, but only
+ * once every group game is resolved so the standings are final; otherwise null.
+ */
+function groupPositionTeam(t, group, pos) {
+  const teamGroups = t.teamGroups || {};
+  const inGroup = (name) =>
+    teamGroups[String(name).trim().toLowerCase()] === group;
+  const teamsInGroup = Object.values(teamGroups).filter(
+    (g) => g === group,
+  ).length;
+  if (!teamsInGroup) return null;
+  const expectedGames = (teamsInGroup * (teamsInGroup - 1)) / 2;
+  const groupMatches = (t.matchList || []).filter(
+    (m) => inGroup(m.teamA) && inGroup(m.teamB),
+  );
+  const resolved = groupMatches.filter(
+    (m) => m.type === "football" && m.status === "resolved" && m.result,
+  );
+  const rows = computeLeagueTable(groupMatches);
+  if (!rows[pos - 1]) return null;
+  // `final` once every group game is played; otherwise it's a current-standings
+  // projection that can still change.
+  return { team: rows[pos - 1].team, final: resolved.length >= expectedGames };
+}
+
+/**
+ * Whether every group has played all of its games, so the final standings
+ * (and therefore the best third-placed ranking) are settled.
+ */
+function allGroupsComplete(t) {
+  const teamGroups = t.teamGroups || {};
+  for (const g of t.groups || []) {
+    const teamsInGroup = Object.values(teamGroups).filter(
+      (x) => x === g,
+    ).length;
+    if (!teamsInGroup) return false;
+    const expected = (teamsInGroup * (teamsInGroup - 1)) / 2;
+    const inGroup = (n) => teamGroups[String(n).trim().toLowerCase()] === g;
+    const groupMatches = (t.matchList || []).filter(
+      (m) => inGroup(m.teamA) && inGroup(m.teamB),
+    );
+    const resolved = groupMatches.filter(
+      (m) => m.type === "football" && m.status === "resolved" && m.result,
+    );
+    if (resolved.length < expected) return false;
+  }
+  return true;
+}
+
+/**
+ * Assign the eight best third-placed teams to their round-of-32 matches.
+ * Each of those matches accepts a third-placed team from one of a fixed set of
+ * groups (the `third` list on its slot); a bipartite matching pairs the
+ * qualifying groups to those matches so every fillable slot shows a team.
+ * Works from current standings (each entry flagged `projected` until all groups
+ * finish), returning a Map of matchNumber -> { team, projected }.
+ */
+function assignThirdPlaces(t) {
+  const result = new Map();
+  const thirds = computeThirdPlaced(t);
+  if (!thirds.length) return result;
+  const projected = !allGroupsComplete(t);
+  const top = thirds.slice(0, 8);
+  const groupToTeam = new Map(top.map((r) => [r.group, r.team]));
+  const qualGroups = new Set(top.map((r) => r.group));
+
+  // Matches whose slot draws from a best third-placed team, with eligible groups.
+  const slotDefs = [];
+  for (const [numStr, slots] of Object.entries(WC_BRACKET.slots)) {
+    const ts = slots.find((s) => s.third);
+    if (ts) slotDefs.push({ num: Number(numStr), eligible: ts.third });
+  }
+  const slotByNum = new Map(slotDefs.map((s) => [s.num, s]));
+  const groupToSlot = new Map(); // group letter -> match number
+  const augment = (slot, visited) => {
+    for (const g of slot.eligible) {
+      if (!qualGroups.has(g) || visited.has(g)) continue;
+      visited.add(g);
+      const occupant = groupToSlot.get(g);
+      if (occupant === undefined || augment(slotByNum.get(occupant), visited)) {
+        groupToSlot.set(g, slot.num);
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const slot of slotDefs) augment(slot, new Set());
+
+  for (const [g, num] of groupToSlot) {
+    result.set(num, { team: groupToTeam.get(g), projected });
+  }
+  return result;
+}
+
+/**
+ * Resolve one bracket slot to { text, real, projected }. `real` marks an actual
+ * team (vs. a placeholder like "Winner Group A"); `projected` marks a team taken
+ * from current, not-yet-final standings.
+ */
+function resolveSlot(t, slot, byNumber, thirdInfo) {
+  if (slot.g) {
+    const gp = groupPositionTeam(t, slot.g, slot.pos);
+    if (gp) return { text: gp.team, real: true, projected: !gp.final };
+    const label = slot.pos === 1 ? "Winner Group " : "Runner-up Group ";
+    return { text: label + slot.g, real: false };
+  }
+  if (slot.third) {
+    if (thirdInfo) {
+      return {
+        text: thirdInfo.team,
+        real: true,
+        projected: thirdInfo.projected,
+      };
+    }
+    return { text: "3rd " + slot.third.join("/"), real: false };
+  }
+  if (slot.win != null || slot.lose != null) {
+    const ref = slot.win != null ? slot.win : slot.lose;
+    const which = slot.win != null ? "win" : "lose";
+    const team = decisiveTeam(byNumber.get(ref), which);
+    if (team) return { text: team, real: true };
+    const label = which === "win" ? "Winner Match " : "Loser Match ";
+    return { text: label + ref, real: false };
+  }
+  return { text: "TBD", real: false };
+}
+
+/**
+ * Resolve both teams of a bracket match: real names + scoreline when the match
+ * exists in the tournament data, otherwise placeholders from the template.
+ */
+function resolveBracketMatch(t, num, byNumber, thirdByMatch) {
+  const dbMatch = byNumber.get(num);
+  if (dbMatch) {
+    const sc = dbMatch.result ? parseScore(dbMatch.result) : null;
+    const decided = sc && sc.a !== sc.b;
+    return {
+      match: dbMatch,
+      a: {
+        text: dbMatch.teamA,
+        real: true,
+        score: sc ? sc.a : null,
+        winner: decided && sc.a > sc.b,
+      },
+      b: {
+        text: dbMatch.teamB,
+        real: true,
+        score: sc ? sc.b : null,
+        winner: decided && sc.b > sc.a,
+      },
+    };
+  }
+  const slots = WC_BRACKET.slots[num] || [{}, {}];
+  const thirdTeam = thirdByMatch ? thirdByMatch.get(num) : null;
+  return {
+    match: null,
+    a: {
+      ...resolveSlot(t, slots[0], byNumber, thirdTeam),
+      score: null,
+      winner: false,
+    },
+    b: {
+      ...resolveSlot(t, slots[1], byNumber, thirdTeam),
+      score: null,
+      winner: false,
+    },
+  };
+}
+
+/** Build one bracket match cell. */
+function buildBracketMatch(t, num, byNumber, thirdByMatch) {
+  const info = resolveBracketMatch(t, num, byNumber, thirdByMatch);
+  const wrap = el("div", { className: "bx-match" });
+  const tag = info.match ? "button" : "div";
+  const box = el(tag, { className: "bx-box" });
+  if (info.match) {
+    box.type = "button";
+    box.classList.add("clickable");
+    box.addEventListener("click", () => openMatchModal(info.match));
+  }
+
+  const teamRow = (side) => {
+    const cls = ["bx-team"];
+    if (!side.real) cls.push("placeholder");
+    if (side.winner) cls.push("winner");
+    if (side.projected) cls.push("projected");
+    const title = side.projected
+      ? ' title="Projected from current standings — not yet final"'
+      : "";
+    const score =
+      side.score != null
+        ? `<span class="bx-score">${side.score}</span>`
+        : `<span class="bx-score"></span>`;
+    return `<div class="${cls.join(" ")}"${title}><span class="bx-name">${esc(
+      side.text,
+    )}</span>${score}</div>`;
+  };
+
+  box.innerHTML = `
+    <div class="bx-num">Match ${num}</div>
+    ${teamRow(info.a)}
+    ${teamRow(info.b)}`;
+  wrap.append(box);
+  return wrap;
+}
+
+/**
+ * Render the World Cup knockout stage as a fixtures bracket. Real teams are
+ * pulled from the tournament data by match number; missing matches fall back to
+ * descriptive placeholders (group positions for the round of 32, otherwise
+ * "Winner/Loser Match N"). The match-for-third-place is shown beneath.
+ */
+function renderKnockoutBracket(container, t) {
+  const byNumber = matchesByNumber(t);
+  const thirdByMatch = assignThirdPlaces(t);
+
+  if (!allGroupsComplete(t)) {
+    container.append(
+      el("div", {
+        className: "bracket-note",
+        textContent:
+          "Dotted teams are projected from current group standings and may change as group matches are resolved.",
+      }),
+    );
+  }
+
+  const bracket = el("div", { className: "bracket bracket-2sided" });
+  const splitRounds = WC_BRACKET.rounds.slice(0, -1); // Round of 32 … Semi-finals
+  const finalRound = WC_BRACKET.rounds[WC_BRACKET.rounds.length - 1];
+
+  const buildCol = (round, nums, sideClass) => {
+    const col = el("div", { className: "bracket-col " + sideClass });
+    col.append(
+      el("div", { className: "bracket-col-title", textContent: round.name }),
+    );
+    const roundEl = el("div", { className: "bracket-round" });
+    for (const num of nums) {
+      roundEl.append(buildBracketMatch(t, num, byNumber, thirdByMatch));
+    }
+    col.append(roundEl);
+    return col;
+  };
+
+  // Left half: the first half of each round's matches, outer → inner.
+  splitRounds.forEach((round, i) => {
+    const half = round.matches.slice(0, round.matches.length / 2);
+    let cls = "side-left depth-" + (splitRounds.length - i); // R32=4 … SF=1
+    if (i === 0) cls += " side-outer";
+    if (i === splitRounds.length - 1) cls += " side-inner";
+    bracket.append(buildCol(round, half, cls));
+  });
+
+  // Final sits in the centre.
+  bracket.append(
+    buildCol(finalRound, finalRound.matches, "bracket-final depth-0"),
+  );
+
+  // Right half mirrors the left: rounds reversed (inner → outer), 2nd half.
+  [...splitRounds].reverse().forEach((round, i, arr) => {
+    const half = round.matches.slice(round.matches.length / 2);
+    let cls = "side-right depth-" + (i + 1); // SF=1 … R32=4
+    if (i === 0) cls += " side-inner";
+    if (i === arr.length - 1) cls += " side-outer";
+    bracket.append(buildCol(round, half, cls));
+  });
+
+  const scroller = el("div", { className: "bracket-scroll" });
+  scroller.append(bracket);
+  container.append(scroller);
+
+  // Match for third place sits outside the main tree.
+  const third = el("div", { className: "bracket-third" });
+  third.append(
+    el("div", {
+      className: "bracket-col-title",
+      textContent: "Match for third place",
+    }),
+  );
+  third.append(buildBracketMatch(t, 103, byNumber, thirdByMatch));
+  container.append(third);
 }
 
 /** Render one League Table per group for a grouped (World Cup) tournament. */
