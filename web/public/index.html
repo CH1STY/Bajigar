@@ -46,20 +46,69 @@
         </div>
         <section id="tournament-kpis" class="kpi-grid"></section>
         <div class="banner" id="tournament-empty"></div>
-        <section class="card-grid">
-          <div class="card wide">
+        <nav class="subtabs" id="tn-subtabs">
+          <button class="subtab active" data-subtab="predictions">
+            Prediction Analytics
+          </button>
+          <button class="subtab" data-subtab="teams">Team Standings</button>
+        </nav>
+        <div id="tn-sub-predictions" class="subtab-panel active">
+          <section class="card-grid">
+            <div class="card wide">
+              <h2>
+                Tournament Leaders
+                <span class="hint">top players in this tournament</span>
+              </h2>
+              <div id="tournament-podium" class="podium"></div>
+            </div>
+          </section>
+          <div id="tn-block"></div>
+          <section class="card">
+            <h2>Standings <span class="hint">current top first</span></h2>
+            <div class="table-wrap" id="tn-standings"></div>
+          </section>
+        </div>
+        <div id="tn-sub-teams" class="subtab-panel">
+          <section id="tn-team-kpis" class="kpi-grid"></section>
+          <div class="banner" id="tn-team-empty"></div>
+          <section class="card-grid">
+            <div class="card">
+              <h2>Top Scoring Teams <span class="hint">goals for</span></h2>
+              <canvas id="tn-team-gf"></canvas>
+            </div>
+            <div class="card">
+              <h2>Best Defenses <span class="hint">fewest conceded</span></h2>
+              <canvas id="tn-team-ga"></canvas>
+            </div>
+            <div class="card">
+              <h2>Most Wins</h2>
+              <canvas id="tn-team-wins"></canvas>
+            </div>
+            <div class="card">
+              <h2>Goal Difference</h2>
+              <canvas id="tn-team-gd"></canvas>
+            </div>
+          </section>
+          <section class="card-grid">
+            <div class="card">
+              <h2>🔥 Biggest Win</h2>
+              <div id="tn-team-biggest" class="spotlight"></div>
+            </div>
+            <div class="card">
+              <h2>🎯 Highest-Scoring Match</h2>
+              <div id="tn-team-highest" class="spotlight"></div>
+            </div>
+          </section>
+          <section class="card">
             <h2>
-              Tournament Leaders
-              <span class="hint">top players in this tournament</span>
+              League Table
+              <span class="hint"
+                >W = 3 · D = 1 · L = 0 · from resolved football scores</span
+              >
             </h2>
-            <div id="tournament-podium" class="podium"></div>
-          </div>
-        </section>
-        <div id="tn-block"></div>
-        <section class="card">
-          <h2>Standings <span class="hint">current top first</span></h2>
-          <div class="table-wrap" id="tn-standings"></div>
-        </section>
+            <div class="table-wrap" id="tn-team-table"></div>
+          </section>
+        </div>
       </section>
     </main>
 

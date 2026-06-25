@@ -84,16 +84,16 @@ function blockHTML(p) {
       </div>
       <div class="match-columns">
         <div class="match-col">
+          <h3 class="match-col-head resolved">Resolved <span class="col-count" id="${p}-col-resolved-count">0</span></h3>
+          <div class="match-list" id="${p}-col-resolved"></div>
+        </div>
+        <div class="match-col">
           <h3 class="match-col-head open">Open <span class="col-count" id="${p}-col-open-count">0</span></h3>
           <div class="match-list" id="${p}-col-open"></div>
         </div>
         <div class="match-col">
           <h3 class="match-col-head upcoming">Upcoming <span class="col-count" id="${p}-col-upcoming-count">0</span></h3>
           <div class="match-list" id="${p}-col-upcoming"></div>
-        </div>
-        <div class="match-col">
-          <h3 class="match-col-head resolved">Resolved <span class="col-count" id="${p}-col-resolved-count">0</span></h3>
-          <div class="match-list" id="${p}-col-resolved"></div>
         </div>
       </div>
     </section>
@@ -491,9 +491,14 @@ function drawMatchColumns(p) {
 
   const buckets = { open: [], upcoming: [], resolved: [] };
   for (const m of filtered) buckets[matchBucket(m)].push(m);
+  const byMatchNumber = (a, b) =>
+    (b.matchNumber ?? b.id) - (a.matchNumber ?? a.id);
+  buckets.open.sort(byMatchNumber);
+  buckets.upcoming.sort(byMatchNumber);
+  buckets.resolved.sort(byMatchNumber);
+  renderMatchColumn(p, "resolved", buckets.resolved);
   renderMatchColumn(p, "open", buckets.open);
   renderMatchColumn(p, "upcoming", buckets.upcoming);
-  renderMatchColumn(p, "resolved", buckets.resolved);
 }
 
 function renderMatchColumn(p, key, matches) {
@@ -510,6 +515,7 @@ function renderMatchColumn(p, key, matches) {
     const item = el("button", { className: "match-item", type: "button" });
     item.innerHTML = `
       <span class="mi-id">#${m.matchNumber ?? m.id}</span>
+      <span class="mi-dbid" title="Database id">id ${m.id}</span>
       <span class="mi-teams">${esc(m.teamA)} <em>v</em> ${esc(m.teamB)}</span>
       <span class="mi-meta">
         <span class="mi-type" title="${esc(m.type)}">${matchTypeIcon(m.type)}</span>
@@ -854,6 +860,7 @@ function setupTournamentPicker(tournaments, defaultId) {
     renderTournamentLeaders(t);
     renderBlock("tn", t);
     renderStandings(standings, t);
+    renderTeamAnalytics(t);
   };
 
   select.onchange = draw;
@@ -902,6 +909,249 @@ function renderStandings(container, t) {
   );
 }
 
+/* ---- Team Standings (real-time football league table) ----
+ * Computed entirely from resolved football match scores — no DB column.
+ * Win = 3 pts, Draw = 1 pt, Loss = 0 pt. */
+function parseScore(value) {
+  if (typeof value !== "string") return null;
+  const m = /^\s*(\d{1,3})\s*-\s*(\d{1,3})\s*$/.exec(value);
+  if (!m) return null;
+  return { a: Number(m[1]), b: Number(m[2]) };
+}
+
+function computeLeagueTable(matchList) {
+  const teams = new Map();
+  const get = (name) => {
+    if (!teams.has(name)) {
+      teams.set(name, {
+        team: name,
+        played: 0,
+        won: 0,
+        drawn: 0,
+        lost: 0,
+        gf: 0,
+        ga: 0,
+      });
+    }
+    return teams.get(name);
+  };
+
+  for (const m of matchList || []) {
+    if (m.type !== "football") continue;
+    if (m.status !== "resolved" || !m.result) continue;
+    const sc = parseScore(m.result);
+    if (!sc) continue;
+    const a = get(m.teamA);
+    const b = get(m.teamB);
+    a.played++;
+    b.played++;
+    a.gf += sc.a;
+    a.ga += sc.b;
+    b.gf += sc.b;
+    b.ga += sc.a;
+    if (sc.a > sc.b) {
+      a.won++;
+      b.lost++;
+    } else if (sc.a < sc.b) {
+      b.won++;
+      a.lost++;
+    } else {
+      a.drawn++;
+      b.drawn++;
+    }
+  }
+
+  const rows = [...teams.values()].map((r) => ({
+    ...r,
+    gd: r.gf - r.ga,
+    points: r.won * 3 + r.drawn,
+  }));
+  rows.sort(
+    (a, b) =>
+      b.points - a.points ||
+      b.gd - a.gd ||
+      b.gf - a.gf ||
+      a.team.localeCompare(b.team),
+  );
+  rows.forEach((r, i) => (r.pos = i + 1));
+  return rows;
+}
+
+function renderTeamTable(container, t) {
+  if (!container) return;
+  container.innerHTML = "";
+  const rows = computeLeagueTable(t.matchList);
+  if (!rows.length) {
+    container.innerHTML =
+      '<div class="empty">No resolved football matches yet.</div>';
+    return;
+  }
+  const fmtGd = (n) => (n > 0 ? `+${n}` : String(n));
+  const columns = [
+    { label: "#", numeric: true, value: (r) => r.pos, render: (r) => r.pos },
+    { label: "Team", value: (r) => r.team, render: (r) => esc(r.team) },
+    {
+      label: "P",
+      numeric: true,
+      value: (r) => r.played,
+      render: (r) => r.played,
+    },
+    { label: "W", numeric: true, value: (r) => r.won, render: (r) => r.won },
+    {
+      label: "D",
+      numeric: true,
+      value: (r) => r.drawn,
+      render: (r) => r.drawn,
+    },
+    { label: "L", numeric: true, value: (r) => r.lost, render: (r) => r.lost },
+    { label: "GF", numeric: true, value: (r) => r.gf, render: (r) => r.gf },
+    { label: "GA", numeric: true, value: (r) => r.ga, render: (r) => r.ga },
+    {
+      label: "GD",
+      numeric: true,
+      value: (r) => r.gd,
+      render: (r) => fmtGd(r.gd),
+    },
+    {
+      label: "Pts",
+      numeric: true,
+      value: (r) => r.points,
+      render: (r) => `<strong>${r.points}</strong>`,
+    },
+  ];
+  container.append(
+    sortableTable(rows, columns, {
+      className: "data-table league-table",
+      rowClass: (r) => (r.pos <= 3 ? "top-rank" : ""),
+      emptyText: "No resolved football matches yet.",
+    }),
+  );
+}
+
+/** Resolved football matches (with a parseable X-Y score) for a tournament. */
+function resolvedFootballMatches(matchList) {
+  const out = [];
+  for (const m of matchList || []) {
+    if (m.type !== "football") continue;
+    if (m.status !== "resolved" || !m.result) continue;
+    const sc = parseScore(m.result);
+    if (!sc) continue;
+    out.push({ ...m, sc });
+  }
+  return out;
+}
+
+/** Render KPIs, charts, spotlights and the league table for one tournament. */
+function renderTeamAnalytics(t) {
+  const rows = computeLeagueTable(t.matchList);
+  const games = resolvedFootballMatches(t.matchList);
+
+  renderTeamKpis(rows, games);
+  renderTeamBars("tn-team-gf", rows, (r) => r.gf, "Goals for", true);
+  renderTeamBars("tn-team-ga", rows, (r) => r.ga, "Goals conceded", false);
+  renderTeamBars("tn-team-wins", rows, (r) => r.won, "Wins", true);
+  renderTeamBars("tn-team-gd", rows, (r) => r.gd, "Goal difference", true);
+  renderTeamHighlights(games);
+  renderTeamTable(document.getElementById("tn-team-table"), t);
+}
+
+function renderTeamKpis(rows, games) {
+  const wrap = document.getElementById("tn-team-kpis");
+  const empty = document.getElementById("tn-team-empty");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (!games.length) {
+    if (empty) {
+      empty.textContent = "No resolved football matches yet.";
+      empty.classList.add("show");
+    }
+    return;
+  }
+  if (empty) empty.classList.remove("show");
+
+  const totalGoals = games.reduce((s, g) => s + g.sc.a + g.sc.b, 0);
+  const avg = (totalGoals / games.length).toFixed(2);
+  const items = [
+    ["Teams", rows.length],
+    ["Matches Played", games.length],
+    ["Goals Scored", totalGoals],
+    ["Avg Goals / Match", avg],
+  ];
+  for (const [label, value] of items) {
+    wrap.append(
+      el("div", { className: "kpi" }, [
+        el("div", { className: "value", textContent: String(value) }),
+        el("div", { className: "label", textContent: label }),
+      ]),
+    );
+  }
+}
+
+function renderTeamBars(id, rows, valueFn, label, highFirst) {
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  if (!rows.length) return emptyCanvas(id, "No resolved football yet");
+  const sorted = rows
+    .slice()
+    .sort((a, b) =>
+      highFirst ? valueFn(b) - valueFn(a) : valueFn(a) - valueFn(b),
+    )
+    .slice(0, 10);
+  barChart(
+    id,
+    sorted.map((r) => r.team),
+    sorted.map((r) => valueFn(r)),
+    label,
+  );
+}
+
+function renderTeamHighlights(games) {
+  const biggest = document.getElementById("tn-team-biggest");
+  const highest = document.getElementById("tn-team-highest");
+
+  if (!games.length) {
+    if (biggest) biggest.innerHTML = '<div class="empty">No matches yet</div>';
+    if (highest) highest.innerHTML = '<div class="empty">No matches yet</div>';
+    return;
+  }
+
+  // Biggest win = largest winning margin (skip draws).
+  let bestMargin = null;
+  // Highest-scoring = most total goals.
+  let mostGoals = null;
+  for (const g of games) {
+    const margin = Math.abs(g.sc.a - g.sc.b);
+    const total = g.sc.a + g.sc.b;
+    if (margin > 0 && (!bestMargin || margin > bestMargin.margin)) {
+      bestMargin = { g, margin };
+    }
+    if (!mostGoals || total > mostGoals.total) {
+      mostGoals = { g, total };
+    }
+  }
+
+  const matchLine = (g) => {
+    const winnerA = g.sc.a > g.sc.b;
+    const a = winnerA ? `<strong>${esc(g.teamA)}</strong>` : esc(g.teamA);
+    const b =
+      !winnerA && g.sc.b > g.sc.a
+        ? `<strong>${esc(g.teamB)}</strong>`
+        : esc(g.teamB);
+    return `${a} ${g.sc.a}–${g.sc.b} ${b}`;
+  };
+
+  if (biggest) {
+    biggest.innerHTML = bestMargin
+      ? `<div class="name">${matchLine(bestMargin.g)}</div>
+         <div class="stat">${bestMargin.margin}-goal margin</div>`
+      : '<div class="empty">No decisive results yet</div>';
+  }
+  if (highest) {
+    highest.innerHTML = `<div class="name">${matchLine(mostGoals.g)}</div>
+       <div class="stat">${mostGoals.total} goals</div>`;
+  }
+}
+
 /* ---- Tab switching ---- */
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -911,6 +1161,19 @@ document.querySelectorAll(".tab").forEach((tab) => {
       .forEach((t) => t.classList.toggle("active", t === tab));
     document.querySelectorAll(".tab-panel").forEach((panel) => {
       panel.classList.toggle("active", panel.id === `tab-${target}`);
+    });
+  });
+});
+
+/* ---- Sub-tab switching (inside the Tournaments tab) ---- */
+document.querySelectorAll(".subtab").forEach((subtab) => {
+  subtab.addEventListener("click", () => {
+    const target = subtab.dataset.subtab;
+    document
+      .querySelectorAll(".subtab")
+      .forEach((s) => s.classList.toggle("active", s === subtab));
+    document.querySelectorAll(".subtab-panel").forEach((panel) => {
+      panel.classList.toggle("active", panel.id === `tn-sub-${target}`);
     });
   });
 });

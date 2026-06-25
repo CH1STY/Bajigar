@@ -340,6 +340,42 @@ table.data-table {
   display: block;
 }
 
+.subtabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.subtab {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 9px 16px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.subtab:hover {
+  color: var(--text);
+}
+
+.subtab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.subtab-panel {
+  display: none;
+}
+
+.subtab-panel.active {
+  display: block;
+}
+
 /* ---- Tournaments ---- */
 #tournament-list {
   display: grid;
@@ -576,6 +612,7 @@ table.standings-table {
 }
 
 .match-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -600,6 +637,16 @@ table.standings-table {
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
+}
+
+.match-item .mi-dbid {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.6;
 }
 
 .match-item .mi-teams {

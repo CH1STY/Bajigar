@@ -227,3 +227,30 @@ Shows the standings for one tournament. Paginated.
 - Numbers stay unique within a tournament. To re-sequence an existing tournament,
   use the DB scripts: `npm run renumber:matches -- <tournament> <startNumber>`
   (and `npm run migrate:match-numbers` to backfill numbers on an older database).
+
+### Re-sequence a tournament's match numbers (DB script)
+
+Renumbers **all** matches in a tournament in id order, starting from the number
+you give. Run it on the machine that hosts the database (stop the bot first if
+you want to be safe).
+
+**By tournament id** — renumber so the first match becomes `#4`:
+
+```text
+npm run renumber:matches -- 1 4
+```
+
+**By tournament name** (case-insensitive):
+
+```text
+npm run renumber:matches -- "World Cup 2026" 1
+```
+
+**Standalone matches** (the ones not tied to any tournament):
+
+```text
+npm run renumber:matches -- standalone 1
+```
+
+➡️ Rewrites the numbers sequentially from `<startNumber>` and verifies they stay
+unique within that group.
