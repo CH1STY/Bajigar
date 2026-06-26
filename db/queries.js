@@ -23,16 +23,17 @@ const getPredictionStmt = db.prepare(
 );
 // Every prediction for a match (best scorers first, then earliest predicted).
 const getMatchPredictionsStmt = db.prepare(`
-  SELECT discord_id, predicted_value, points_earned, updated_at
+  SELECT discord_id, predicted_value, tiebreaker_value, points_earned, updated_at
   FROM predictions
   WHERE match_id = ?
   ORDER BY points_earned DESC, updated_at ASC
 `);
 // A single user's prediction history with each match's details.
 const getUserPredictionsStmt = db.prepare(`
-  SELECT p.predicted_value, p.points_earned, p.updated_at,
+  SELECT p.predicted_value, p.tiebreaker_value, p.points_earned, p.updated_at,
          m.id AS match_id, m.match_number, m.type, m.team_a, m.team_b,
-         m.status, m.result, m.start_time, m.end_time,
+         m.status, m.result, m.is_knockout, m.tiebreaker_result,
+         m.start_time, m.end_time,
          t.name AS tournament_name
   FROM predictions p
   JOIN matches m ON m.id = p.match_id
@@ -50,10 +51,11 @@ const getPredictionCountsStmt = db.prepare(`
 `);
 // Upsert a prediction while recording when it changed.
 const upsertPredictionStmt = db.prepare(`
-  INSERT INTO predictions (match_id, discord_id, predicted_value, points_earned, updated_at)
-  VALUES (?, ?, ?, 0, ?)
+  INSERT INTO predictions (match_id, discord_id, predicted_value, tiebreaker_value, points_earned, updated_at)
+  VALUES (?, ?, ?, ?, 0, ?)
   ON CONFLICT(match_id, discord_id)
   DO UPDATE SET predicted_value = excluded.predicted_value,
+                tiebreaker_value = excluded.tiebreaker_value,
                 points_earned = 0,
                 updated_at = excluded.updated_at
 `);
@@ -252,10 +254,25 @@ function getPredictionCounts(tournamentId) {
 /**
  * Create or update a user's prediction (resets points until re-resolved).
  * Records the change time so the dashboard can show "last predicted".
+ * @param {number} matchId
+ * @param {string} discordId
+ * @param {string} predictedValue regular-time score / winning team
+ * @param {string|null} [tiebreakerValue] knockout tie-breaker score, if any
  */
-function upsertPrediction(matchId, discordId, predictedValue) {
+function upsertPrediction(
+  matchId,
+  discordId,
+  predictedValue,
+  tiebreakerValue = null,
+) {
   ensureUser(discordId);
-  upsertPredictionStmt.run(matchId, discordId, predictedValue, Date.now());
+  upsertPredictionStmt.run(
+    matchId,
+    discordId,
+    predictedValue,
+    tiebreakerValue ?? null,
+    Date.now(),
+  );
 }
 
 /** Remember which message holds a tournament's live table. */
@@ -381,6 +398,24 @@ function updateMatchTimes(matchId, newStartTime, newEndTime) {
   updateMatchTimesStmt.run(newStartTime, newEndTime, matchId);
 }
 
+// Toggle a match's knockout flag (football only). Clearing it also drops any
+// recorded tie-breaker result so the data stays consistent.
+const setMatchKnockoutStmt = db.prepare(`
+  UPDATE matches
+  SET is_knockout = ?, tiebreaker_result = CASE WHEN ? = 1 THEN tiebreaker_result ELSE NULL END
+  WHERE id = ?
+`);
+
+/**
+ * Enable or disable the knockout flag on an existing match.
+ * @param {number} matchId
+ * @param {boolean} isKnockout
+ */
+function setMatchKnockout(matchId, isKnockout) {
+  const flag = isKnockout ? 1 : 0;
+  setMatchKnockoutStmt.run(flag, flag, matchId);
+}
+
 module.exports = {
   db,
   ensureUser,
@@ -408,4 +443,5 @@ module.exports = {
   transaction,
   getUserPredictions,
   updateMatchTimes,
+  setMatchKnockout,
 };

@@ -20,6 +20,21 @@
       "team_a": "India",
       "team_b": "Australia",
       "result": "India"
+    },
+    {
+      "type": "football",
+      "team_a": "Argentina",
+      "team_b": "Germany",
+      "is_knockout": true,
+      "result": "1-1",
+      "tiebreaker": "4-3"
+    },
+    {
+      "type": "football",
+      "team_a": "Spain",
+      "team_b": "Italy",
+      "is_knockout": true,
+      "result": "2-1"
     }
   ]
 }

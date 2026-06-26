@@ -23,7 +23,7 @@ const MATCH_BUTTON_PREFIX = "dash:m:";
 const TYPE_EMOJI = { football: "⚽", cricket: "🏏" };
 const MAX_BUTTONS = 25; // 5 rows × 5 buttons (Discord limit)
 const DASHBOARD_LIMIT = 10; // most time-relevant matches shown on the table
-const MAX_TEAMS_WIDTH = 22; // team names total width for 43 char row limit
+const MAX_TEAMS_WIDTH = 18; // team names total width for 43 char row limit
 
 /** Is the match currently accepting predictions? */
 function isActive(match) {
@@ -80,12 +80,21 @@ function buildMatchTable(matches, counts) {
   const rows = matches.map((m) => {
     const key = matchState(m).key;
     const resolved = key === "resolved";
+    // Knockout matches that went to a tie-breaker show it next to the score,
+    // e.g. "1-1 (4-3)" (regular result, then the penalty result in brackets).
+    let result = "—";
+    if (resolved) {
+      result =
+        m.is_knockout && m.tiebreaker_result
+          ? `${m.result ?? "?"} (${m.tiebreaker_result})`
+          : (m.result ?? "?");
+    }
     return {
       id: `#${m.match_number ?? m.id}`,
       teams: clip(`${m.team_a} v ${m.team_b}`, MAX_TEAMS_WIDTH),
-      type: m.type === "cricket" ? "C" : "F",
+      type: m.is_knockout ? "K" : m.type === "cricket" ? "C" : "F",
       status: STATE_TEXT[key] ?? "Closed",
-      result: resolved ? (m.result ?? "?") : "—",
+      result,
       predictions: String(counts.get(m.id) ?? 0),
     };
   });
@@ -93,10 +102,10 @@ function buildMatchTable(matches, counts) {
   // Fixed column widths to ensure proper alignment (total 43 chars per row)
   const width = {
     id: 3,
-    teams: 22,
+    teams: 18,
     type: 1,
-    status: 5,
-    result: 4,
+    status: 4,
+    result: 11,
     predictions: 2,
   };
 
@@ -135,7 +144,7 @@ function buildDashboardEmbed(tournament, matches, counts, totalMatches) {
   let table = buildMatchTable(matches, counts);
 
   // Compact legend to explain table columns (goes at the top)
-  const legend = `**Legend:** # = Match No | Match = Teams | T = Type (F=Football/C=Cricket) | Stat = Status (Open=accepting predictions / Next=opens soon / Cls=closed / Res=result published) | R = Result | P = Total Predictions Made`;
+  const legend = `**Legend:** # = Match No | Match = Teams | T = Type (F=Football/C=Cricket/K=Knockout) | Stat = Status (Open=accepting predictions / Next=opens soon / Cls=closed / Res=result published) | R = Result (knockout shows score then tie-breaker in brackets, e.g. 1-1 (4-3)) | P = Total Predictions Made`;
 
   // Timestamps don't render inside code blocks, so list the actionable
   // open/upcoming deadlines underneath where they render as live times.
@@ -143,9 +152,9 @@ function buildDashboardEmbed(tournament, matches, counts, totalMatches) {
     .map((m) => {
       const key = matchState(m).key;
       if (key === "open")
-        return `⏳ \`#${m.match_number ?? m.id}\` closes ${toDiscordTimestamp(m.end_time)}`;
+        return `⏳ \`#${m.match_number ?? m.id}\` closes ${toDiscordTimestamp(m.end_time)}${m.is_knockout ? " · 🥅 knockout" : ""}`;
       if (key === "pending")
-        return `🕒 \`#${m.match_number ?? m.id}\` opens ${toDiscordTimestamp(m.start_time)}`;
+        return `🕒 \`#${m.match_number ?? m.id}\` opens ${toDiscordTimestamp(m.start_time)}${m.is_knockout ? " · 🥅 knockout" : ""}`;
       return null;
     })
     .filter(Boolean);

@@ -27,7 +27,7 @@ Accessibility legend:
 
 ### Bulk-import JSON format
 
-`/match-import` accepts either an array of matches or an object with a `matches` array. Each match needs `type`, `team_a`, `team_b`, and `end_time`; `start_time` is optional (`"now"` or omitted = open immediately). Add `result` to import an already-resolved match (then `end_time` is optional). `match_number` is optional — set a custom per-tournament number, otherwise entries are auto-numbered after the existing matches. Times accept the same natural language as `/match-add` (`"2026-06-20 18:00"`, `"in 3 hours"`, `"17:00"`, or a unix timestamp). Wall-clock times default to the configured timezone; add `UTC`/`GMT` (e.g. `"2026-06-20 18:00 UTC"`) or use an ISO string with `Z`/offset to specify UTC.
+`/match-import` accepts either an array of matches or an object with a `matches` array. Each match needs `type`, `team_a`, `team_b`, and `end_time`; `start_time` is optional (`"now"` or omitted = open immediately). Add `result` to import an already-resolved match (then `end_time` is optional). For knockout football, set `is_knockout: true` (predictors also pick a tie-breaker); on a resolved knockout decided on penalties, add `tiebreaker` (an `"X-Y"` score with a winner). `match_number` is optional — set a custom per-tournament number, otherwise entries are auto-numbered after the existing matches. Times accept the same natural language as `/match-add` (`"2026-06-20 18:00"`, `"in 3 hours"`, `"17:00"`, or a unix timestamp). Wall-clock times default to the configured timezone; add `UTC`/`GMT` (e.g. `"2026-06-20 18:00 UTC"`) or use an ISO string with `Z`/offset to specify UTC.
 
 ```json
 {
@@ -44,6 +44,21 @@ Accessibility legend:
       "team_a": "India",
       "team_b": "Australia",
       "end_time": "in 3 hours"
+    },
+    {
+      "type": "football",
+      "team_a": "Argentina",
+      "team_b": "Germany",
+      "is_knockout": true,
+      "end_time": "tomorrow 20:00"
+    },
+    {
+      "type": "football",
+      "team_a": "Spain",
+      "team_b": "Italy",
+      "is_knockout": true,
+      "result": "1-1",
+      "tiebreaker": "4-3"
     }
   ]
 }

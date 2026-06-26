@@ -46,6 +46,12 @@ function esc(s) {
   );
 }
 
+/** Parse an "X-Y" score string into { a, b } numbers (or null). */
+function parseScore(v) {
+  const m = /^\s*(\d{1,3})\s*-\s*(\d{1,3})\s*$/.exec(String(v || ""));
+  return m ? { a: +m[1], b: +m[2] } : null;
+}
+
 /** HTML template for one analytics block, with element IDs namespaced by prefix. */
 function blockHTML(p) {
   return `
@@ -135,6 +141,7 @@ async function load() {
 }
 
 function render(data) {
+  scoringConfig = data.scoring || scoringConfig;
   // Overview tab = global block (same shape as each tournament block).
   document.getElementById("ov-block").innerHTML = blockHTML("ov");
   renderBlock("ov", data);
@@ -520,7 +527,16 @@ function renderMatchColumn(p, key, matches) {
       <span class="mi-teams">${esc(m.teamA)} <em>v</em> ${esc(m.teamB)}</span>
       <span class="mi-meta">
         <span class="mi-type" title="${esc(m.type)}">${matchTypeIcon(m.type)}</span>
-        ${m.result ? `<span class="mi-result">${esc(m.result)}</span>` : ""}
+        ${m.isKnockout ? `<span class="mi-ko" title="Knockout match">KO</span>` : ""}
+        ${
+          m.result
+            ? `<span class="mi-result">${esc(m.result)}${
+                m.isKnockout && m.tiebreakerResult
+                  ? ` <span class="mi-tb">(${esc(m.tiebreakerResult)})</span>`
+                  : ""
+              }</span>`
+            : ""
+        }
         <span class="mi-picks">${m.predictionCount} pick${m.predictionCount === 1 ? "" : "s"}</span>
       </span>`;
     item.addEventListener("click", () => openMatchModal(m));
@@ -545,6 +561,70 @@ function closeMatchModal() {
   document.body.classList.remove("modal-open");
 }
 
+/** Human round name for a World Cup knockout match number. */
+function roundName(num) {
+  if (num >= 73 && num <= 88) return "Round of 32";
+  if (num >= 89 && num <= 96) return "Round of 16";
+  if (num >= 97 && num <= 100) return "Quarter-final";
+  if (num >= 101 && num <= 102) return "Semi-final";
+  if (num === 103) return "Third-place play-off";
+  if (num === 104) return "Final";
+  return "Knockout";
+}
+
+/**
+ * Open the match modal for a bracket slot that has no created match yet,
+ * showing the projected matchup, each side's qualification path and whether it
+ * is confirmed, projected or still undetermined.
+ */
+function openBracketProjectionModal(t, num, info) {
+  const overlay = document.getElementById("match-modal");
+  const body = document.getElementById("match-modal-body");
+  if (!overlay || !body) return;
+  destroy("modal-match-dist");
+
+  const slots = WC_BRACKET.slots[num] || [{}, {}];
+  const sideHtml = (slot, side) => {
+    let status, statusClass;
+    if (side.real && side.projected) {
+      status = "projected from current standings";
+      statusClass = "proj-status proj-projected";
+    } else if (side.real) {
+      status = "confirmed";
+      statusClass = "proj-status proj-confirmed";
+    } else {
+      status = "not determined yet";
+      statusClass = "proj-status proj-tbd";
+    }
+    return `<div class="proj-side">
+        <div class="proj-team">${side.real ? esc(side.text) : "TBD"}</div>
+        <div class="proj-from">${esc(slotDescription(slot))}</div>
+        <div class="${statusClass}">${status}</div>
+      </div>`;
+  };
+
+  const sched = fmtDhaka(WC_SCHEDULE[num]);
+  body.innerHTML = `
+    <div class="md-head">
+      <div class="md-title">${info.a.real ? esc(info.a.text) : "TBD"} <span class="md-v">v</span> ${info.b.real ? esc(info.b.text) : "TBD"}</div>
+      <div class="md-sub">
+        <span class="mi-type">⚽ Football</span>
+        <span class="md-ko">🥅 Knockout</span>
+        <span class="mi-state">${esc(roundName(num))} · Match ${num}</span>
+        ${sched ? `<span class="md-result">Scheduled: <strong>${esc(sched)}</strong> (GMT+6)</span>` : ""}
+      </div>
+    </div>
+    <div class="proj-grid">
+      ${sideHtml(slots[0], info.a)}
+      <div class="proj-vs">vs</div>
+      ${sideHtml(slots[1], info.b)}
+    </div>
+    <p class="proj-note">This match hasn't been created yet — once it is added, predictions and results will appear here.</p>`;
+
+  overlay.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
 function renderMatchDetail(container, m, chartId) {
   if (!container) return;
   destroy(chartId);
@@ -557,10 +637,17 @@ function renderMatchDetail(container, m, chartId) {
     <div class="md-title">${esc(m.teamA)} <span class="md-v">v</span> ${esc(m.teamB)}</div>
     <div class="md-sub">
       <span class="mi-type">${matchTypeIcon(m.type)} ${esc(m.type === "football" ? "Football" : "Cricket")}</span>
+      ${m.isKnockout ? `<span class="md-ko">🥅 Knockout</span>` : ""}
       <span class="mi-state state-${esc(m.state)}">${esc(MATCH_STATE_LABEL[m.state] || m.state)}</span>
       ${
         m.result
-          ? `<span class="md-result">Result: <strong>${esc(m.result)}</strong></span>`
+          ? `<span class="md-result">Result: <strong>${esc(m.result)}</strong>${
+              m.isKnockout && m.tiebreakerResult
+                ? ` <span class="md-tb">· tie-breaker ${esc(m.tiebreakerResult)}</span>`
+                : m.isKnockout
+                  ? ` <span class="md-tb muted">· settled in regular time</span>`
+                  : ""
+            }</span>`
           : `<span class="md-result muted">No result yet</span>`
       }
     </div>
@@ -621,6 +708,38 @@ function renderMatchDetail(container, m, chartId) {
       render: (r) => `<strong>${esc(r.value)}</strong>`,
     },
   ];
+  if (isFootball && m.isKnockout) {
+    const tbActual = resolved ? m.tiebreakerResult : null;
+    columns.push({
+      label: "Tie-breaker",
+      value: (r) => r.tiebreaker || "",
+      render: (r) => {
+        if (!r.tiebreaker) return '<span class="muted">—</span>';
+        let cls = "";
+        let mark = "";
+        if (tbActual) {
+          const pick = parseScore(r.tiebreaker);
+          const act = parseScore(tbActual);
+          if (pick && act) {
+            const exact = pick.a === act.a && pick.b === act.b;
+            const winner =
+              Math.sign(pick.a - pick.b) === Math.sign(act.a - act.b);
+            if (exact) {
+              cls = "diff-good";
+              mark = " ✅";
+            } else if (winner) {
+              cls = "tb-half";
+              mark = " ◐";
+            } else {
+              cls = "diff-bad";
+              mark = " ✗";
+            }
+          }
+        }
+        return `<span class="${cls}">${esc(r.tiebreaker)}${mark}</span>`;
+      },
+    });
+  }
   if (resolved && isFootball) {
     columns.push({
       label: "Goal Diff",
@@ -1293,18 +1412,29 @@ function matchesByNumber(t) {
 }
 
 /**
- * Winner/loser of a resolved match, or null when undecided. Penalty shootouts
- * (a level full-time score) can't be derived from the stored scoreline, so a
- * drawn result yields null and the bracket keeps the placeholder.
+ * Winner/loser of a resolved match, or null when undecided. A level full-time
+ * score is decided by the tie-breaker (penalty shootout) for knockout matches;
+ * if there is no tie-breaker recorded, a drawn result yields null and the
+ * bracket keeps the placeholder.
  */
 function decisiveTeam(m, which) {
   if (!m || m.type !== "football" || m.status !== "resolved" || !m.result) {
     return null;
   }
   const sc = parseScore(m.result);
-  if (!sc || sc.a === sc.b) return null;
-  const winner = sc.a > sc.b ? m.teamA : m.teamB;
-  const loser = sc.a > sc.b ? m.teamB : m.teamA;
+  if (!sc) return null;
+  let winner, loser;
+  if (sc.a === sc.b) {
+    // Level after regular/extra time: only a knockout tie-breaker can decide it.
+    if (!m.isKnockout || !m.tiebreakerResult) return null;
+    const tb = parseScore(m.tiebreakerResult);
+    if (!tb || tb.a === tb.b) return null;
+    winner = tb.a > tb.b ? m.teamA : m.teamB;
+    loser = tb.a > tb.b ? m.teamB : m.teamA;
+  } else {
+    winner = sc.a > sc.b ? m.teamA : m.teamB;
+    loser = sc.a > sc.b ? m.teamB : m.teamA;
+  }
   return which === "win" ? winner : loser;
 }
 
@@ -1444,20 +1574,27 @@ function resolveBracketMatch(t, num, byNumber, thirdByMatch) {
   const dbMatch = byNumber.get(num);
   if (dbMatch) {
     const sc = dbMatch.result ? parseScore(dbMatch.result) : null;
-    const decided = sc && sc.a !== sc.b;
+    const tb =
+      dbMatch.isKnockout && dbMatch.tiebreakerResult
+        ? parseScore(dbMatch.tiebreakerResult)
+        : null;
+    const decidedReg = sc && sc.a !== sc.b;
+    const decidedTb = sc && sc.a === sc.b && tb && tb.a !== tb.b;
     return {
       match: dbMatch,
       a: {
         text: dbMatch.teamA,
         real: true,
         score: sc ? sc.a : null,
-        winner: decided && sc.a > sc.b,
+        tbScore: decidedTb ? tb.a : null,
+        winner: decidedReg ? sc.a > sc.b : decidedTb ? tb.a > tb.b : false,
       },
       b: {
         text: dbMatch.teamB,
         real: true,
         score: sc ? sc.b : null,
-        winner: decided && sc.b > sc.a,
+        tbScore: decidedTb ? tb.b : null,
+        winner: decidedReg ? sc.b > sc.a : decidedTb ? tb.b > tb.a : false,
       },
     };
   }
@@ -1482,13 +1619,22 @@ function resolveBracketMatch(t, num, byNumber, thirdByMatch) {
 function buildBracketMatch(t, num, byNumber, thirdByMatch) {
   const info = resolveBracketMatch(t, num, byNumber, thirdByMatch);
   const wrap = el("div", { className: "bx-match" });
-  const tag = info.match ? "button" : "div";
-  const box = el(tag, { className: "bx-box" });
-  if (info.match) {
-    box.type = "button";
-    box.classList.add("clickable");
-    box.addEventListener("click", () => openMatchModal(info.match));
-  }
+
+  // The matchup is "confirmed" once an actual match exists, or once both sides
+  // are real teams drawn from final (not projected) standings. Everything else
+  // is still pending. Every card is clickable: confirmed cards open the match
+  // detail modal; pending cards open a projection modal explaining the path.
+  const bothReal = info.a.real && info.b.real;
+  const anyProjected = info.a.projected || info.b.projected;
+  const confirmed = !!info.match || (bothReal && !anyProjected);
+
+  const box = el("button", { className: "bx-box clickable" });
+  box.type = "button";
+  box.classList.add(confirmed ? "bx-box--confirmed" : "bx-box--pending");
+  box.addEventListener("click", () => {
+    if (info.match) openMatchModal(info.match);
+    else openBracketProjectionModal(t, num, info);
+  });
 
   const teamRow = (side) => {
     const cls = ["bx-team"];
@@ -1500,7 +1646,11 @@ function buildBracketMatch(t, num, byNumber, thirdByMatch) {
       : "";
     const score =
       side.score != null
-        ? `<span class="bx-score">${side.score}</span>`
+        ? `<span class="bx-score">${side.score}${
+            side.tbScore != null
+              ? `<span class="bx-pens" title="Penalty shootout">(${side.tbScore})</span>`
+              : ""
+          }</span>`
         : `<span class="bx-score"></span>`;
     return `<div class="${cls.join(" ")}"${title}><span class="bx-name">${esc(
       side.text,
@@ -1995,4 +2145,167 @@ document.addEventListener("keydown", (e) => {
 });
 
 document.getElementById("refresh").addEventListener("click", load);
+
+/* ---- World Cup trivia ticker (rotates every 15s) ---- */
+let WC_TRIVIA = [];
+
+let triviaTimer = null;
+let triviaOrder = [];
+let triviaIdx = 0;
+
+function shuffledTrivia() {
+  const a = WC_TRIVIA.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function showNextTrivia() {
+  const node = document.getElementById("trivia-text");
+  if (!node) return;
+  if (triviaIdx >= triviaOrder.length) {
+    triviaOrder = shuffledTrivia();
+    triviaIdx = 0;
+  }
+  const text = triviaOrder[triviaIdx++];
+  node.classList.remove("show");
+  // Allow the fade-out to start, then swap text and fade back in.
+  window.setTimeout(() => {
+    node.textContent = text;
+    node.classList.add("show");
+  }, 250);
+}
+
+function startTrivia() {
+  const node = document.getElementById("trivia-text");
+  if (!node) return;
+  fetch("trivia.json")
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      WC_TRIVIA = Array.isArray(data?.trivia) ? data.trivia : [];
+      if (!WC_TRIVIA.length) {
+        document.getElementById("trivia")?.setAttribute("hidden", "");
+        return;
+      }
+      triviaOrder = shuffledTrivia();
+      triviaIdx = 0;
+      showNextTrivia();
+      if (triviaTimer) window.clearInterval(triviaTimer);
+      triviaTimer = window.setInterval(showNextTrivia, 15000);
+    })
+    .catch(() => {
+      document.getElementById("trivia")?.setAttribute("hidden", "");
+    });
+}
+
+/* ---- "How points work" scoring modal ---- */
+let scoringConfig = null;
+
+function fmtPts(n) {
+  return Number(n) === 1 ? "1 pt" : `${n} pts`;
+}
+
+function buildScoringHTML() {
+  const s = scoringConfig || {
+    football: {
+      exact: 10,
+      near: 2.5,
+      outcome: 5,
+      tiebreakerWinner: 5,
+      tiebreakerExact: 5,
+    },
+    cricket: { correct: 10 },
+  };
+  const f = s.football || {};
+  const c = s.cricket || {};
+  const maxRegular = (f.outcome || 0) + (f.exact || 0);
+  const maxKnockout =
+    maxRegular + (f.tiebreakerWinner || 0) + (f.tiebreakerExact || 0);
+
+  return `
+    <div class="md-head">
+      <div class="md-title">🎯 How points are scored</div>
+      <div class="md-sub">
+        <span class="md-result muted">Rewards stack — you can earn several bonuses on one prediction.</span>
+      </div>
+    </div>
+
+    <h3 class="md-section">⚽ Football — regular time</h3>
+    <p class="scoring-note">Your <strong>regular-time</strong> score is always graded this way, even for knockout matches that later go to a tie-breaker. The rewards below stack together.</p>
+    <table class="data-table scoring-table">
+      <thead><tr><th>What you got right</th><th>Reward</th></tr></thead>
+      <tbody>
+        <tr><td>Correct winner or draw <span class="hint">right result, wrong score</span></td><td class="pts">+${fmtPts(f.outcome)}</td></tr>
+        <tr><td>Exact scoreline <span class="hint">added on top of the outcome reward</span></td><td class="pts">+${fmtPts(f.exact)}</td></tr>
+        <tr><td>Near miss <span class="hint">total goal difference from the result is exactly 1</span></td><td class="pts">+${fmtPts(f.near)}</td></tr>
+        <tr><td>Wrong outcome and not close</td><td class="pts muted">0 pts</td></tr>
+      </tbody>
+    </table>
+    <p class="scoring-note">Best case in regular time: correct outcome <em>and</em> exact score = <strong>${fmtPts(maxRegular)}</strong>. The "near miss" bonus only applies when you didn't hit the exact score.</p>
+
+    <h3 class="md-section">🥅 Knockout tie-breakers <span class="hint">football only</span></h3>
+    <p class="scoring-note">Knockout matches can't end in a draw. When a knockout match is decided by a <strong>tie-breaker</strong> (penalty shootout) and you predicted one, these <strong>bonus</strong> points stack on top of your regular-time score. If the match is settled in regular/extra time, the tie-breaker is ignored — no bonus and no penalty.</p>
+    <table class="data-table scoring-table">
+      <thead><tr><th>Tie-breaker prediction</th><th>Bonus</th></tr></thead>
+      <tbody>
+        <tr><td>Correct tie-breaker winner</td><td class="pts">+${fmtPts(f.tiebreakerWinner)}</td></tr>
+        <tr><td>Exact tie-breaker score <span class="hint">added on top of the winner bonus</span></td><td class="pts">+${fmtPts(f.tiebreakerExact)}</td></tr>
+      </tbody>
+    </table>
+    <p class="scoring-note">Maximum on a knockout match that goes to penalties: <strong>${fmtPts(maxKnockout)}</strong> (perfect regular-time score + correct &amp; exact tie-breaker).</p>
+
+    <h3 class="md-section">🏏 Cricket</h3>
+    <table class="data-table scoring-table">
+      <thead><tr><th>Prediction</th><th>Reward</th></tr></thead>
+      <tbody>
+        <tr><td>Correct winning team</td><td class="pts">+${fmtPts(c.correct)}</td></tr>
+        <tr><td>Wrong team</td><td class="pts muted">0 pts</td></tr>
+      </tbody>
+    </table>
+    <p class="scoring-note">Cricket is winner-only — no score prediction, no draws, and no tie-breakers.</p>
+
+    <h3 class="md-section">🧮 Worked examples</h3>
+    <ul class="scoring-examples">
+      <li><strong>Result 2–1, you said 2–1</strong> → correct outcome (+${f.outcome}) and exact score (+${f.exact}) = <strong>${fmtPts(maxRegular)}</strong>.</li>
+      <li><strong>Result 2–1, you said 3–1</strong> → correct outcome (+${f.outcome}) and goal diff = 1 (+${f.near}) = <strong>${fmtPts((f.outcome || 0) + (f.near || 0))}</strong>.</li>
+      <li><strong>Result 2–1, you said 1–2</strong> → wrong outcome, goal diff = 2 = <strong>0 pts</strong>.</li>
+      <li><strong>Knockout 1–1 (pens 4–3), you said 1–1 with tie-breaker 4–3</strong> → regular exact (+${maxRegular}) + correct TB winner (+${f.tiebreakerWinner}) + exact TB (+${f.tiebreakerExact}) = <strong>${fmtPts(maxKnockout)}</strong>.</li>
+      <li><strong>Knockout settled 2–0 in regular time</strong> → only your regular-time score counts; your tie-breaker pick is ignored.</li>
+    </ul>`;
+}
+
+function openScoringModal() {
+  const overlay = document.getElementById("scoring-modal");
+  const body = document.getElementById("scoring-modal-body");
+  if (!overlay || !body) return;
+  body.innerHTML = buildScoringHTML();
+  overlay.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeScoringModal() {
+  const overlay = document.getElementById("scoring-modal");
+  if (!overlay || overlay.hidden) return;
+  overlay.hidden = true;
+  if (document.getElementById("match-modal").hidden) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+document
+  .getElementById("scoring-help")
+  .addEventListener("click", openScoringModal);
+document
+  .getElementById("scoring-modal-close")
+  .addEventListener("click", closeScoringModal);
+document.getElementById("scoring-modal").addEventListener("click", (e) => {
+  if (e.target.id === "scoring-modal") closeScoringModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeScoringModal();
+});
+
+startTrivia();
 load();

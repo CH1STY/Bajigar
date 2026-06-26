@@ -12,7 +12,9 @@ const {
 } = require("../../db/queries");
 const {
   normalizeFootballScore,
+  normalizeTiebreakerScore,
   scoreFootball,
+  scoreTiebreaker,
   scoreCricket,
 } = require("../../utils/scoring");
 const { ephemeral } = require("../../utils/embeds");
@@ -34,20 +36,28 @@ const adjustGlobalPoints = db.prepare(
   "UPDATE users SET global_points = global_points + ? WHERE discord_id = ?",
 );
 const resolveMatchStmt = db.prepare(
-  "UPDATE matches SET status = 'resolved', result = ? WHERE id = ?",
+  "UPDATE matches SET status = 'resolved', result = ?, tiebreaker_result = ? WHERE id = ?",
 );
 
 // Run the entire resolution atomically.
-function resolveMatch(match, result) {
+// For knockout football matches, `tiebreakerResult` (a penalty "X-Y" score, or
+// null when the match settled in regular time) adds bonus points on top of the
+// unchanged regular-time score; it is ignored entirely when null.
+function resolveMatch(match, result, tiebreakerResult) {
   return transaction(() => {
     const predictions = getPredictions.all(match.id);
     let awarded = 0;
 
     for (const pred of predictions) {
-      const points =
-        match.type === "football"
-          ? scoreFootball(pred.predicted_value, result)
-          : scoreCricket(pred.predicted_value, result);
+      let points;
+      if (match.type === "football") {
+        points = scoreFootball(pred.predicted_value, result);
+        if (match.is_knockout && tiebreakerResult) {
+          points += scoreTiebreaker(pred.tiebreaker_value, tiebreakerResult);
+        }
+      } else {
+        points = scoreCricket(pred.predicted_value, result);
+      }
 
       // Apply the delta so re-resolving a match stays consistent.
       const delta = points - pred.points_earned;
@@ -58,7 +68,7 @@ function resolveMatch(match, result) {
       if (points > 0) awarded += 1;
     }
 
-    resolveMatchStmt.run(result, match.id);
+    resolveMatchStmt.run(result, tiebreakerResult ?? null, match.id);
     return { total: predictions.length, awarded };
   });
 }
@@ -83,6 +93,14 @@ module.exports = {
         .setDescription('Football: "X-Y" score. Cricket: winning team name.')
         .setRequired(true),
     )
+    .addStringOption((o) =>
+      o
+        .setName("tiebreaker")
+        .setDescription(
+          'Knockout only: the tie-breaker "X-Y" score if it went to penalties (omit if settled in regular time)',
+        )
+        .setRequired(false),
+    )
     .addIntegerOption((o) =>
       o
         .setName("tournament_id")
@@ -95,6 +113,7 @@ module.exports = {
   async execute(interaction) {
     const matchNumber = interaction.options.getInteger("match_number");
     const resultRaw = interaction.options.getString("result").trim();
+    const tiebreakerRaw = interaction.options.getString("tiebreaker");
     const tournamentIdOption = interaction.options.getInteger("tournament_id");
 
     const lookup = resolveMatchByNumber({
@@ -146,14 +165,38 @@ module.exports = {
         lower === match.team_a.toLowerCase() ? match.team_a : match.team_b;
     }
 
-    const { total, awarded } = resolveMatch(match, result);
+    // Validate the optional knockout tie-breaker (penalty) result.
+    const hasTiebreaker = tiebreakerRaw !== null && tiebreakerRaw.trim() !== "";
+    let tiebreakerResult = null;
+    if (hasTiebreaker) {
+      if (!match.is_knockout) {
+        return interaction.reply(
+          ephemeral(
+            `❌ Match \`#${matchNumber}\` isn't a knockout match, so it has no tie-breaker.`,
+          ),
+        );
+      }
+      const normalizedTb = normalizeTiebreakerScore(tiebreakerRaw.trim());
+      if (!normalizedTb) {
+        return interaction.reply(
+          ephemeral(
+            "❌ `tiebreaker` must be a score with a winner, e.g. `4-3` (no draws).",
+          ),
+        );
+      }
+      tiebreakerResult = normalizedTb;
+    }
+
+    const { total, awarded } = resolveMatch(match, result, tiebreakerResult);
 
     const isResolve = match.status === "resolved";
     const action = isResolve ? "Re-resolved" : "Resolved";
 
     await interaction.reply(
       ephemeral(
-        `🏁 Match \`#${matchNumber}\` ${action.toLowerCase()} — result: **${result}**.\n` +
+        `🏁 Match \`#${matchNumber}\` ${action.toLowerCase()} — result: **${result}**` +
+          (tiebreakerResult ? ` (tie-breaker **${tiebreakerResult}**)` : "") +
+          `.\n` +
           `Scored **${total}** prediction(s); **${awarded}** earned points.`,
       ),
     );
@@ -165,6 +208,7 @@ module.exports = {
     await announceMatchResolved(interaction.client, {
       match,
       result,
+      tiebreakerResult,
       total,
       awarded,
       topEarners: getMatchTopEarners.all(match.id),

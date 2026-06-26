@@ -174,7 +174,14 @@ async function runStartAnnouncementCheck(client) {
  * }} info
  */
 async function announceMatchResolved(client, info) {
-  const { match, result, total, awarded, topEarners = [] } = info;
+  const {
+    match,
+    result,
+    tiebreakerResult,
+    total,
+    awarded,
+    topEarners = [],
+  } = info;
   const context = info.tournamentName
     ? `🏆 ${info.tournamentName}`
     : "Standalone match";
@@ -190,12 +197,16 @@ async function announceMatchResolved(client, info) {
           .join("\n")
       : "_No one earned points this time._";
 
+  const resultLine = tiebreakerResult
+    ? `Result: **${result}** · 🥅 tie-breaker **${tiebreakerResult}**\n`
+    : `Result: **${result}**\n`;
+
   const embed = new EmbedBuilder()
     .setTitle("🏁 Match Resolved")
     .setDescription(
-      `**${match.team_a}** vs **${match.team_b}** (${match.type})\n` +
+      `**${match.team_a}** vs **${match.team_b}** (${match.type}${match.is_knockout ? ", knockout" : ""})\n` +
         `${context} · Match \`#${match.match_number ?? match.id}\`\n` +
-        `Result: **${result}**\n` +
+        resultLine +
         `🗳️ ${total} prediction${total === 1 ? "" : "s"} scored · ` +
         `🎯 ${awarded} earned points\n\n` +
         `**Top scorers**\n${scorers}`,

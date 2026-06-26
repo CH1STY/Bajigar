@@ -36,6 +36,14 @@
       "team_b": "USA",
       "start_time": "2026-06-23 14:00 UTC",
       "end_time": "2026-06-23 20:00 UTC"
+    },
+    {
+      "type": "football",
+      "team_a": "Croatia",
+      "team_b": "Belgium",
+      "is_knockout": true,
+      "start_time": "2026-06-24 15:00 UTC",
+      "end_time": "2026-06-24 21:00 UTC"
     }
   ]
 }

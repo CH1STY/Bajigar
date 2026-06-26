@@ -24,6 +24,18 @@ function normalizeFootballScore(value) {
 }
 
 /**
+ * Normalize a tie-breaker (penalty shootout) score. Like a football score but
+ * a tie-breaker MUST have a winner, so a draw (e.g. "3-3") is rejected.
+ * @param {string} value
+ * @returns {string|null} canonical "X-Y" with a winner, or null if invalid/draw
+ */
+function normalizeTiebreakerScore(value) {
+  const parsed = parseFootballScore(value);
+  if (!parsed || parsed.a === parsed.b) return null;
+  return `${parsed.a}-${parsed.b}`;
+}
+
+/**
  * Determine the outcome of a parsed score: home win, away win, or draw.
  * @param {{ a: number, b: number }} score
  * @returns {'home'|'away'|'draw'}
@@ -67,6 +79,32 @@ function scoreFootball(predicted, result) {
 }
 
 /**
+ * Score a knockout tie-breaker (penalty shootout) prediction. This is a BONUS
+ * that stacks on top of the regular-time football score and is only ever
+ * awarded when the match actually went to a tie-breaker.
+ *  - Correct tie-breaker winner -> SCORING.football.tiebreakerWinner
+ *  - Exact tie-breaker score    -> SCORING.football.tiebreakerExact (added on top)
+ *
+ * @param {string} predicted "X-Y" predicted tie-breaker score
+ * @param {string} result    "X-Y" actual tie-breaker score
+ * @returns {number}
+ */
+function scoreTiebreaker(predicted, result) {
+  const p = parseFootballScore(predicted);
+  const r = parseFootballScore(result);
+  if (!p || !r) return 0;
+
+  let points = 0;
+  if (footballOutcome(p) === footballOutcome(r)) {
+    points += SCORING.football.tiebreakerWinner;
+  }
+  if (p.a === r.a && p.b === r.b) {
+    points += SCORING.football.tiebreakerExact;
+  }
+  return points;
+}
+
+/**
  * Score a cricket prediction (correct winning team).
  * @param {string} predicted team name
  * @param {string} result    winning team name
@@ -82,6 +120,8 @@ function scoreCricket(predicted, result) {
 module.exports = {
   parseFootballScore,
   normalizeFootballScore,
+  normalizeTiebreakerScore,
   scoreFootball,
+  scoreTiebreaker,
   scoreCricket,
 };

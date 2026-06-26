@@ -12,6 +12,10 @@
 //   - start_time: optional; "now"/omitted = open immediately, else a future time
 //   - result:     optional; if present the match is imported already RESOLVED
 //                 (football "X-Y" score, or cricket winning team name)
+//   - is_knockout: optional boolean (football only); predictors also pick a
+//                 tie-breaker score and resolving can award tie-breaker bonuses
+//   - tiebreaker: optional; for a resolved knockout decided on penalties, the
+//                 tie-breaker "X-Y" score (must have a winner)
 //   - match_number: optional custom per-tournament number; omitted entries are
 //                 auto-numbered after the existing/used numbers in the group
 
@@ -24,7 +28,10 @@ const {
   transaction,
 } = require("../../db/queries");
 const { parseEndTime, toDiscordTimestamp } = require("../../utils/time");
-const { normalizeFootballScore } = require("../../utils/scoring");
+const {
+  normalizeFootballScore,
+  normalizeTiebreakerScore,
+} = require("../../utils/scoring");
 const { ephemeral } = require("../../utils/embeds");
 const { refreshDashboard } = require("../../utils/dashboard");
 const { runStartAnnouncementCheck } = require("../../utils/notifications");
@@ -33,8 +40,8 @@ const MAX_MATCHES = 100;
 const MAX_BYTES = 256 * 1024; // 256 KB attachment cap
 
 const insertMatch = db.prepare(
-  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, match_number, start_time, end_time, result)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, match_number, is_knockout, start_time, end_time, result, tiebreaker_result)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 
 /** Pull the array of match objects out of either accepted JSON shape. */
@@ -60,6 +67,12 @@ function validateMatch(raw) {
   const teamB = String(raw.team_b ?? "").trim();
   if (!teamA || !teamB) {
     return { ok: false, error: "team_a and team_b are required" };
+  }
+
+  // is_knockout: optional boolean (football only). Accept is_knockout/isKnockout.
+  const isKnockout = Boolean(raw.is_knockout ?? raw.isKnockout ?? false);
+  if (isKnockout && type !== "football") {
+    return { ok: false, error: "knockout is only available for football" };
   }
 
   // result: optional. If present, the match is imported already resolved.
@@ -89,6 +102,32 @@ function validateMatch(raw) {
     }
   }
 
+  // tiebreaker: optional knockout penalty result (only for resolved knockouts).
+  const rawTb = raw.tiebreaker;
+  const hasTiebreaker =
+    rawTb !== undefined && rawTb !== null && String(rawTb).trim() !== "";
+  let tiebreakerResult = null;
+  if (hasTiebreaker) {
+    if (!isKnockout) {
+      return {
+        ok: false,
+        error: "tiebreaker is only valid for knockout matches",
+      };
+    }
+    if (!hasResult) {
+      return {
+        ok: false,
+        error: "tiebreaker only applies to a resolved match (needs result)",
+      };
+    }
+    tiebreakerResult = normalizeTiebreakerScore(String(rawTb).trim());
+    if (!tiebreakerResult) {
+      return {
+        ok: false,
+        error: `tiebreaker must be a score with a winner like "4-3" (got "${rawTb}")`,
+      };
+    }
+  }
   // end_time: required, except for resolved matches where it defaults to now.
   let endTime;
   if (
@@ -161,6 +200,8 @@ function validateMatch(raw) {
       endTime,
       status: hasResult ? "resolved" : "open",
       result,
+      isKnockout,
+      tiebreakerResult,
       matchNumber,
     },
   };
@@ -338,9 +379,11 @@ module.exports = {
           m.teamB,
           m.status,
           m.matchNumber,
+          m.isKnockout ? 1 : 0,
           m.startTime,
           m.endTime,
           m.result,
+          m.tiebreakerResult,
         ),
       ),
     );

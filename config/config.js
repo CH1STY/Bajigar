@@ -37,6 +37,11 @@ module.exports = {
       exact: 10, // Predicted score exactly matches the result.
       near: 2.5, // Total goal difference from the actual result is exactly 1.
       outcome: 5, // Correct winner or draw (right result, wrong score).
+      // Knockout tie-breaker bonuses. Only awarded when a knockout match is
+      // decided by a tie-breaker (penalty shootout) AND the user predicted one.
+      // These stack on top of the regular-time score (which is unaffected).
+      tiebreakerWinner: 5, // Correct tie-breaker winner.
+      tiebreakerExact: 5, // Exact tie-breaker score (added on top of winner).
     },
     cricket: {
       correct: 10, // Correct winning team.

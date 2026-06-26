@@ -22,8 +22,20 @@
           </p>
         </div>
       </div>
+      <div
+        class="trivia"
+        id="trivia"
+        aria-live="polite"
+        title="World Cup trivia"
+      >
+        <span class="trivia-badge">⚽ Did you know?</span>
+        <span class="trivia-text" id="trivia-text"></span>
+      </div>
       <div class="actions">
         <span id="updated" class="updated"></span>
+        <button id="scoring-help" class="btn btn-ghost" type="button">
+          🎯 How points work
+        </button>
         <button id="refresh" class="btn">Refresh</button>
       </div>
     </header>
@@ -163,6 +175,25 @@
           ×
         </button>
         <div class="modal-body" id="match-modal-body"></div>
+      </div>
+    </div>
+
+    <div id="scoring-modal" class="modal-overlay" hidden>
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="How points are scored"
+      >
+        <button
+          class="modal-close"
+          id="scoring-modal-close"
+          aria-label="Close"
+          title="Close"
+        >
+          ×
+        </button>
+        <div class="modal-body" id="scoring-modal-body"></div>
       </div>
     </div>
 

@@ -20,6 +20,13 @@
       "team_b": "Australia",
       "start_time": "tomorrow 14:00",
       "end_time": "tomorrow 18:00"
+    },
+    {
+      "type": "football",
+      "team_a": "Argentina",
+      "team_b": "Germany",
+      "is_knockout": true,
+      "end_time": "tomorrow 20:00"
     }
   ]
 }

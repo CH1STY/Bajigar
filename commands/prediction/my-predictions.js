@@ -70,11 +70,20 @@ module.exports = {
           const tag = STATE_TAG[state] ?? "❔";
           const where = r.tournament_name ? ` · ${r.tournament_name}` : "";
 
+          const pick =
+            r.is_knockout && r.tiebreaker_value
+              ? `\`${r.predicted_value}\` · TB \`${r.tiebreaker_value}\``
+              : `\`${r.predicted_value}\``;
+
           let outcome;
           if (state === "resolved") {
             const hit = r.points_earned > 0;
+            const tb =
+              r.is_knockout && r.tiebreaker_result
+                ? ` (TB **${r.tiebreaker_result}**)`
+                : "";
             outcome =
-              `result: **${r.result ?? "?"}** · ` +
+              `result: **${r.result ?? "?"}**${tb} · ` +
               (hit ? `🏅 **+${r.points_earned}** pts` : "❌ 0 pts");
           } else {
             outcome = `closes ${toDiscordTimestamp(r.end_time)}`;
@@ -82,7 +91,7 @@ module.exports = {
 
           return (
             `**#${r.match_number ?? r.match_id} ${emoji} ${r.team_a} 🆚 ${r.team_b}**${where}\n` +
-            `> ${tag} · your pick: \`${r.predicted_value}\`\n` +
+            `> ${tag} · your pick: ${pick}\n` +
             `> ${outcome}`
           );
         });

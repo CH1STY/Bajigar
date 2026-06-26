@@ -40,9 +40,11 @@ db.exec(`
     team_b        TEXT NOT NULL,
     status        TEXT NOT NULL DEFAULT 'open', -- open | closed | resolved
     match_number  INTEGER,                  -- per-tournament display number (NULL group for standalone)
+    is_knockout   INTEGER NOT NULL DEFAULT 0, -- 1 = knockout (football) needing a winner via tie-breaker
     start_time    INTEGER,                  -- epoch ms predictions open (NULL = immediately)
     end_time      INTEGER NOT NULL,         -- epoch milliseconds
     result        TEXT,                     -- "X-Y" score or winning team name
+    tiebreaker_result TEXT,                 -- knockout tie-breaker (penalty) "X-Y"; NULL = settled in regular time
     reminded      INTEGER NOT NULL DEFAULT 0, -- 1 once the closing-soon alert was sent
     start_announced INTEGER NOT NULL DEFAULT 0, -- 1 once the "predictions open" alert was sent
     FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
@@ -53,6 +55,7 @@ db.exec(`
     match_id        INTEGER NOT NULL,
     discord_id      TEXT NOT NULL,
     predicted_value TEXT NOT NULL,          -- "X-Y" score or team name
+    tiebreaker_value TEXT,                  -- knockout tie-breaker (penalty) "X-Y" prediction; NULL otherwise
     points_earned   REAL NOT NULL DEFAULT 0,
     updated_at      INTEGER NOT NULL DEFAULT 0, -- epoch ms of last change
     UNIQUE (match_id, discord_id),
@@ -125,6 +128,15 @@ if (!matchColumns.includes("start_announced")) {
     "ALTER TABLE matches ADD COLUMN start_announced INTEGER NOT NULL DEFAULT 0",
   );
 }
+// Knockout matches need a winner; a tie-breaker (penalty) result decides it.
+if (!matchColumns.includes("is_knockout")) {
+  db.exec(
+    "ALTER TABLE matches ADD COLUMN is_knockout INTEGER NOT NULL DEFAULT 0",
+  );
+}
+if (!matchColumns.includes("tiebreaker_result")) {
+  db.exec("ALTER TABLE matches ADD COLUMN tiebreaker_result TEXT");
+}
 
 // Per-tournament match numbers shown/handled in place of the internal id.
 // Backfill existing rows sequentially by creation order within each tournament
@@ -153,6 +165,10 @@ if (!predictionColumns.includes("updated_at")) {
   db.exec(
     "ALTER TABLE predictions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
   );
+}
+// Knockout tie-breaker (penalty) score prediction, set alongside the regular score.
+if (!predictionColumns.includes("tiebreaker_value")) {
+  db.exec("ALTER TABLE predictions ADD COLUMN tiebreaker_value TEXT");
 }
 
 module.exports = db;

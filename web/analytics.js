@@ -11,7 +11,7 @@ const path = require("path");
 const db = require("../db/queries").db;
 const { predictionState } = require("../db/queries");
 const { parseFootballScore } = require("../utils/scoring");
-const { WEB_DEFAULT_TOURNAMENT } = require("../config/config");
+const { WEB_DEFAULT_TOURNAMENT, SCORING } = require("../config/config");
 
 // --- World Cup team grouping (web UI only; no DB involvement) ----------------
 // Tournaments whose name contains "world cup" show their League Table split into
@@ -84,7 +84,7 @@ const allMatchesStmt = db.prepare(`
 `);
 
 const allPredictionsStmt = db.prepare(`
-  SELECT p.match_id, p.discord_id, p.predicted_value, p.points_earned, p.updated_at
+  SELECT p.match_id, p.discord_id, p.predicted_value, p.tiebreaker_value, p.points_earned, p.updated_at
   FROM predictions p
 `);
 
@@ -357,6 +357,7 @@ function computeBlock(matches, allPredictions, name) {
               id: p.discord_id,
               name: name(p.discord_id),
               value: p.predicted_value,
+              tiebreaker: p.tiebreaker_value || null,
               points: +p.points_earned,
               correct: null,
             };
@@ -404,6 +405,8 @@ function computeBlock(matches, allPredictions, name) {
         teamB: m.team_b,
         status: m.status,
         result: m.result || null,
+        isKnockout: !!m.is_knockout,
+        tiebreakerResult: m.tiebreaker_result || null,
         startTime: m.start_time || null,
         endTime: m.end_time || null,
         state,
@@ -478,6 +481,7 @@ function buildAnalytics(nameOf) {
 
   return {
     generatedAt: Date.now(),
+    scoring: SCORING,
     ...global,
     tournaments,
     defaultTournamentId,

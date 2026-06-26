@@ -16,15 +16,18 @@ const {
   buildEndTimeSuggestions,
   buildStartTimeSuggestions,
 } = require("../../utils/time");
-const { normalizeFootballScore } = require("../../utils/scoring");
+const {
+  normalizeFootballScore,
+  normalizeTiebreakerScore,
+} = require("../../utils/scoring");
 const { ephemeral } = require("../../utils/embeds");
 const { refreshDashboard } = require("../../utils/dashboard");
 const { runStartAnnouncementCheck } = require("../../utils/notifications");
 const { TIMEZONE } = require("../../config/config");
 
 const insertMatch = db.prepare(
-  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, match_number, start_time, end_time, result)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  `INSERT INTO matches (tournament_id, type, team_a, team_b, status, match_number, is_knockout, start_time, end_time, result, tiebreaker_result)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 
 module.exports = {
@@ -74,6 +77,22 @@ module.exports = {
         )
         .setRequired(false),
     )
+    .addBooleanOption((o) =>
+      o
+        .setName("knockout")
+        .setDescription(
+          "Knockout football match: needs a winner; predictors also pick the tie-breaker score",
+        )
+        .setRequired(false),
+    )
+    .addStringOption((o) =>
+      o
+        .setName("tiebreaker")
+        .setDescription(
+          'For a resolved knockout that went to penalties: the tie-breaker "X-Y" score',
+        )
+        .setRequired(false),
+    )
     .addIntegerOption((o) =>
       o
         .setName("match_number")
@@ -111,10 +130,32 @@ module.exports = {
     const endTimeRaw = interaction.options.getString("end_time");
     const startTimeRaw = interaction.options.getString("start_time");
     const resultRaw = interaction.options.getString("result");
+    const isKnockout = interaction.options.getBoolean("knockout") ?? false;
+    const tiebreakerRaw = interaction.options.getString("tiebreaker");
     const matchNumberOption = interaction.options.getInteger("match_number");
     const tournamentIdOption = interaction.options.getInteger("tournament_id");
 
     const hasResult = resultRaw !== null && resultRaw.trim() !== "";
+    const hasTiebreaker = tiebreakerRaw !== null && tiebreakerRaw.trim() !== "";
+
+    // Knockout is a football-only concept (cricket already requires a winner).
+    if (isKnockout && type !== "football") {
+      return interaction.reply(
+        ephemeral("❌ `knockout` is only available for football matches."),
+      );
+    }
+    if (hasTiebreaker && !isKnockout) {
+      return interaction.reply(
+        ephemeral("❌ `tiebreaker` is only valid for knockout matches."),
+      );
+    }
+    if (hasTiebreaker && !hasResult) {
+      return interaction.reply(
+        ephemeral(
+          "❌ A `tiebreaker` score only applies to an already-finished match (provide `result` too).",
+        ),
+      );
+    }
 
     // Resolve the tournament:
     //   1. explicit tournament_id, else
@@ -181,6 +222,19 @@ module.exports = {
       }
     }
 
+    // Validate the tie-breaker (penalty) score for a resolved knockout match.
+    let tiebreakerResult = null;
+    if (hasTiebreaker) {
+      const normalizedTb = normalizeTiebreakerScore(tiebreakerRaw.trim());
+      if (!normalizedTb) {
+        return interaction.reply(
+          ephemeral(
+            "❌ `tiebreaker` must be a score with a winner, e.g. `4-3` (no draws).",
+          ),
+        );
+      }
+      tiebreakerResult = normalizedTb;
+    }
     // Resolve the start time. Default / "now" => null (open immediately).
     // Irrelevant for an already-resolved match.
     let startTime = null;
@@ -229,9 +283,11 @@ module.exports = {
       teamB,
       hasResult ? "resolved" : "open",
       matchNumber,
+      isKnockout ? 1 : 0,
       startTime,
       endTime,
       result,
+      tiebreakerResult,
     );
 
     const context = tournament
@@ -242,8 +298,11 @@ module.exports = {
       await interaction.reply(
         ephemeral(
           `✅ Resolved match **#${matchNumber}** added ${context}:\n` +
-            `**${teamA}** vs **${teamB}** (${type})\n` +
-            `🏁 Result: **${result}**`,
+            `**${teamA}** vs **${teamB}** (${type}${isKnockout ? ", knockout" : ""})\n` +
+            `🏁 Result: **${result}**` +
+            (tiebreakerResult
+              ? `\n🥅 Tie-breaker: **${tiebreakerResult}**`
+              : ""),
         ),
       );
       if (tournament) {
@@ -259,7 +318,10 @@ module.exports = {
     await interaction.reply(
       ephemeral(
         `✅ Match **#${matchNumber}** added ${context}:\n` +
-          `**${teamA}** vs **${teamB}** (${type})\n` +
+          `**${teamA}** vs **${teamB}** (${type}${isKnockout ? ", knockout" : ""})\n` +
+          (isKnockout
+            ? "🥅 Knockout — predictors also pick the tie-breaker score.\n"
+            : "") +
           `${opensLine}\n` +
           `🔒 Predictions close: ${toDiscordTimestamp(endTime)}`,
       ),

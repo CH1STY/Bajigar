@@ -9,7 +9,10 @@ const {
   predictionState,
   resolveMatchByNumber,
 } = require("../../db/queries");
-const { normalizeFootballScore } = require("../../utils/scoring");
+const {
+  normalizeFootballScore,
+  normalizeTiebreakerScore,
+} = require("../../utils/scoring");
 const { toDiscordTimestamp } = require("../../utils/time");
 const { ephemeral } = require("../../utils/embeds");
 const { refreshDashboard } = require("../../utils/dashboard");
@@ -33,6 +36,14 @@ module.exports = {
         )
         .setRequired(true),
     )
+    .addStringOption((o) =>
+      o
+        .setName("tiebreaker")
+        .setDescription(
+          "Knockout matches only: tie-breaker score with a winner, e.g. 4-3",
+        )
+        .setRequired(false),
+    )
     .addIntegerOption((o) =>
       o
         .setName("tournament_id")
@@ -45,6 +56,7 @@ module.exports = {
   async execute(interaction) {
     const matchNumber = interaction.options.getInteger("match_number");
     const scoreRaw = interaction.options.getString("score");
+    const tiebreakerRaw = interaction.options.getString("tiebreaker");
     const tournamentIdOption = interaction.options.getInteger("tournament_id");
 
     const score = normalizeFootballScore(scoreRaw);
@@ -87,13 +99,40 @@ module.exports = {
       );
     }
 
-    upsertPrediction(match.id, interaction.user.id, score);
+    // Knockout matches also need a tie-breaker (penalty) prediction with a winner.
+    let tiebreaker = null;
+    if (match.is_knockout) {
+      if (!tiebreakerRaw || tiebreakerRaw.trim() === "") {
+        return interaction.reply(
+          ephemeral(
+            `❌ Match \`#${matchNumber}\` is a knockout — also provide a \`tiebreaker\` score with a winner, e.g. \`4-3\`.`,
+          ),
+        );
+      }
+      tiebreaker = normalizeTiebreakerScore(tiebreakerRaw.trim());
+      if (!tiebreaker) {
+        return interaction.reply(
+          ephemeral(
+            "❌ Invalid `tiebreaker`. Use `X-Y` with a winner (no draws), e.g. `4-3`.",
+          ),
+        );
+      }
+    } else if (tiebreakerRaw && tiebreakerRaw.trim() !== "") {
+      return interaction.reply(
+        ephemeral(
+          `❌ Match \`#${matchNumber}\` isn't a knockout, so it has no tie-breaker.`,
+        ),
+      );
+    }
+
+    upsertPrediction(match.id, interaction.user.id, score, tiebreaker);
 
     const [ga, gb] = score.split("-");
     await interaction.reply(
       ephemeral(
-        `✅ Prediction saved: **${match.team_a} ${ga} – ${gb} ${match.team_b}** (\`${score}\`).\n` +
-          `You can change it until ${toDiscordTimestamp(match.end_time)}.`,
+        `✅ Prediction saved: **${match.team_a} ${ga} – ${gb} ${match.team_b}** (\`${score}\`).` +
+          (tiebreaker ? `\n🥅 Tie-breaker: **${tiebreaker}**.` : "") +
+          `\nYou can change it until ${toDiscordTimestamp(match.end_time)}.`,
       ),
     );
     if (match.tournament_id) {

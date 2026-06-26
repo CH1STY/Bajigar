@@ -29,7 +29,10 @@ function buildMatchPredictionsEmbed(match) {
   const emoji = TYPE_EMOJI[match.type] ?? "🎯";
 
   const status = resolved
-    ? `✅ Resolved — result: **${match.result ?? "?"}**`
+    ? `✅ Resolved — result: **${match.result ?? "?"}**` +
+      (match.is_knockout && match.tiebreaker_result
+        ? ` · 🥅 tie-breaker **${match.tiebreaker_result}**`
+        : "")
     : open
       ? `🟢 Open · closes ${toDiscordTimestamp(match.end_time)}`
       : "🔒 Closed";
@@ -55,7 +58,11 @@ function buildMatchPredictionsEmbed(match) {
     lines = predictions.slice(0, MAX_ROWS).map((p) => {
       const points =
         resolved && p.points_earned > 0 ? ` · **+${p.points_earned}** pts` : "";
-      return `• <@${p.discord_id}> — \`${p.predicted_value}\`${points}`;
+      const tb =
+        match.is_knockout && p.tiebreaker_value
+          ? ` · TB \`${p.tiebreaker_value}\``
+          : "";
+      return `• <@${p.discord_id}> — \`${p.predicted_value}\`${tb}${points}`;
     });
   }
 
@@ -68,7 +75,7 @@ function buildMatchPredictionsEmbed(match) {
     : "";
 
   embed.setDescription(
-    `**${match.team_a}** 🆚 **${match.team_b}** (${match.type})\n` +
+    `**${match.team_a}** 🆚 **${match.team_b}** (${match.type}${match.is_knockout ? ", knockout" : ""})\n` +
       `${status}\n🗳️ ${predictions.length} prediction${predictions.length === 1 ? "" : "s"}\n\n` +
       lines.join("\n") +
       hiddenNote,

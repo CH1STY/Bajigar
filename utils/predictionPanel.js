@@ -48,23 +48,37 @@ function panelContent(match, prediction) {
   else status = "🔒 **Closed** for predictions";
 
   const lines = [
-    `**#${match.match_number ?? match.id} ${emoji} ${match.type[0].toUpperCase()}${match.type.slice(1)}**`,
+    `**#${match.match_number ?? match.id} ${emoji} ${match.type[0].toUpperCase()}${match.type.slice(1)}${match.is_knockout ? " 🥅 Knockout" : ""}**`,
     `**${match.team_a}** 🆚 **${match.team_b}**`,
     status,
   ];
 
   if (prediction) {
     lines.push(`\n🎯 Your prediction: **${prediction.predicted_value}**`);
+    if (match.is_knockout) {
+      lines.push(
+        prediction.tiebreaker_value
+          ? `🥅 Tie-breaker pick: **${prediction.tiebreaker_value}**`
+          : "⚠️ No tie-breaker pick yet — update to add one.",
+      );
+    }
     if (prediction.updated_at) {
       lines.push(
         `🕒 Last updated: ${toDiscordTimestamp(prediction.updated_at)}`,
       );
     }
     if (resolved) {
+      if (match.is_knockout && match.tiebreaker_result) {
+        lines.push(`🥅 Tie-breaker result: **${match.tiebreaker_result}**`);
+      }
       lines.push(`🏅 Points earned: **${prediction.points_earned}**`);
     }
   } else if (open) {
-    lines.push("\n🔔 You haven't predicted yet — use the controls below.");
+    lines.push(
+      match.is_knockout
+        ? "\n🔔 You haven't predicted yet — you'll pick the score AND the tie-breaker."
+        : "\n🔔 You haven't predicted yet — use the controls below.",
+    );
   } else if (pending) {
     lines.push(
       `\n⏳ Predictions aren't open yet — come back ${toDiscordTimestamp(match.start_time)}.`,
@@ -172,13 +186,50 @@ function buildFootballModal(match, prediction) {
   if (prevA) inputA.setValue(prevA);
   if (prevB) inputB.setValue(prevB);
 
-  return new ModalBuilder()
+  const modal = new ModalBuilder()
     .setCustomId(`pp:fbm:${match.id}`)
     .setTitle(`Predict: ${match.team_a} vs ${match.team_b}`.slice(0, 45))
     .addComponents(
       new ActionRowBuilder().addComponents(inputA),
       new ActionRowBuilder().addComponents(inputB),
     );
+
+  // Knockout matches also collect a tie-breaker (penalty shootout) score.
+  if (match.is_knockout) {
+    let prevTbA = "";
+    let prevTbB = "";
+    if (prediction?.tiebreaker_value) {
+      const tb = /^(\d{1,3})\s*-\s*(\d{1,3})$/.exec(
+        prediction.tiebreaker_value,
+      );
+      if (tb) {
+        prevTbA = tb[1];
+        prevTbB = tb[2];
+      }
+    }
+    const tbA = new TextInputBuilder()
+      .setCustomId("tb_a")
+      .setLabel(`${match.team_a} — tie-breaker`.slice(0, 45))
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(3)
+      .setPlaceholder("penalties, e.g. 4");
+    const tbB = new TextInputBuilder()
+      .setCustomId("tb_b")
+      .setLabel(`${match.team_b} — tie-breaker`.slice(0, 45))
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(3)
+      .setPlaceholder("penalties, e.g. 3");
+    if (prevTbA) tbA.setValue(prevTbA);
+    if (prevTbB) tbB.setValue(prevTbB);
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(tbA),
+      new ActionRowBuilder().addComponents(tbB),
+    );
+  }
+
+  return modal;
 }
 
 /** Football "Enter/Update Score" button → open the score modal. */
@@ -221,10 +272,34 @@ async function handleFootballModal(interaction, matchId) {
   }
   const score = `${Number(rawA)}-${Number(rawB)}`;
 
-  upsertPrediction(matchId, interaction.user.id, score);
+  // Knockout matches require a tie-breaker (penalty) pick with a winner.
+  let tiebreaker = null;
+  if (match.is_knockout) {
+    const rawTbA = interaction.fields.getTextInputValue("tb_a").trim();
+    const rawTbB = interaction.fields.getTextInputValue("tb_b").trim();
+    if (!/^\d{1,3}$/.test(rawTbA) || !/^\d{1,3}$/.test(rawTbB)) {
+      return interaction.reply(
+        ephemeral(
+          `❌ Enter a whole number for each team's tie-breaker ` +
+            `(**${match.team_a}** and **${match.team_b}**), e.g. \`4\` and \`3\`.`,
+        ),
+      );
+    }
+    if (Number(rawTbA) === Number(rawTbB)) {
+      return interaction.reply(
+        ephemeral(
+          "❌ A tie-breaker must have a winner — the two scores can't be equal.",
+        ),
+      );
+    }
+    tiebreaker = `${Number(rawTbA)}-${Number(rawTbB)}`;
+  }
+
+  upsertPrediction(matchId, interaction.user.id, score, tiebreaker);
   await interaction.reply(
     ephemeral(
-      `✅ Prediction saved: **${match.team_a} ${rawA} – ${rawB} ${match.team_b}** (\`${score}\`).`,
+      `✅ Prediction saved: **${match.team_a} ${rawA} – ${rawB} ${match.team_b}** (\`${score}\`).` +
+        (tiebreaker ? `\n🥅 Tie-breaker: **${tiebreaker}**.` : ""),
     ),
   );
   await refreshDashboard(interaction.client, match.tournament_id);
