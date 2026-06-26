@@ -1,463 +1,258 @@
 {
-  "_help": "Player Analysis data. Use with the Discord command /lineup-add (attach this file or paste it as JSON). This file shows TWO matches via the \"lineups\" array: (1) a blank template you fill in, and (2) a real-life example populated with actual data from the 2022 FIFA World Cup Final. To submit a single match you can also send just one object like these. Download a copy at /lineup-example.json on the dashboard.",
-  "lineups": [
-    {
-      "_example": "1) BLANK TEMPLATE — replace the placeholders with your match data.",
-      "matchId": 0,
-      "_matchId": "REQUIRED. The database match id shown as 'id N' on each match card in the dashboard / match list. Replace 0 with the real id.",
-      "home": {
-        "_help": "home = bottom half of the pitch. away = top half. Both are optional but you usually want both.",
-        "name": "Team A",
-        "formation": "4-3-3",
-        "color": "#5865f2",
-        "flag": "🏳️",
-        "starters": [
-          {
-            "number": 1,
-            "name": "Full Player Name",
-            "pos": "GK",
-            "rating": 7.1,
-            "minutes": 90,
-            "saves": 4,
-            "yellow": 0,
-            "red": 0,
-            "captain": false,
-            "_help": "GK shows 'Keeper saves'. pos GK/DEF/MID/FWD. Every field except name is optional."
-          },
-          {
-            "number": 4,
-            "name": "Centre Back",
-            "pos": "DEF",
-            "rating": 6.8,
-            "minutes": 90,
-            "shots": 0,
-            "goals": 0,
-            "assists": 0,
-            "yellow": 1,
-            "yellowAt": [30]
-          },
-          {
-            "number": 8,
-            "name": "Midfielder",
-            "pos": "MID",
-            "rating": 7.4,
-            "minutes": 78,
-            "shots": 2,
-            "assists": 1,
-            "assistsAt": [45],
-            "captain": true,
-            "subbedOffAt": 78,
-            "_help": "Event minutes are optional: goalsAt / assistsAt / yellowAt / redAt accept a list of minutes (e.g. [23, 67]) or a single number. They show as tooltips on the pitch and times in the player popup."
-          },
-          {
-            "number": 9,
-            "name": "Striker",
-            "pos": "FWD",
-            "rating": 8.2,
-            "minutes": 90,
-            "shots": 5,
-            "goals": 2,
-            "goalsAt": [12, 75]
-          }
-        ],
-        "bench": [
-          {
-            "number": 17,
-            "name": "Substitute",
-            "rating": 6.5,
-            "minutes": 12,
-            "shots": 1,
-            "subbedOnAt": 78,
-            "forNumber": 8
-          }
-        ]
+  "matchId": 12,
+  "motm": { "team": "home", "number": 10 },
+  "home": {
+    "name": "Argentina",
+    "formation": "4-4-2",
+    "color": "#6cabdd",
+    "flag": "🇦🇷",
+    "starters": [
+      {
+        "number": 23,
+        "name": "E. Martínez",
+        "pos": "GK",
+        "rating": 7.9,
+        "minutes": 120,
+        "saves": 5
       },
-      "away": {
-        "name": "Team B",
-        "formation": "4-4-2",
-        "color": "#ed4245",
-        "flag": "🏴",
-        "starters": [
-          {
-            "number": 1,
-            "name": "Away Keeper",
-            "pos": "GK",
-            "rating": 6.9,
-            "minutes": 90,
-            "saves": 6
-          },
-          {
-            "number": 5,
-            "name": "Away Defender",
-            "pos": "DEF",
-            "rating": 6.4,
-            "minutes": 90,
-            "shots": 0,
-            "red": 1,
-            "redAt": [55]
-          },
-          {
-            "number": 10,
-            "name": "Away Playmaker",
-            "pos": "MID",
-            "rating": 7.0,
-            "minutes": 90,
-            "shots": 1,
-            "goals": 1,
-            "goalsAt": [40]
-          },
-          {
-            "number": 11,
-            "name": "Away Winger",
-            "pos": "FWD",
-            "rating": 6.2,
-            "minutes": 66,
-            "shots": 2,
-            "subbedOffAt": 66
-          }
-        ],
-        "bench": [
-          {
-            "number": 20,
-            "name": "Away Sub",
-            "rating": 6.0,
-            "minutes": 24,
-            "subbedOnAt": 66,
-            "forNumber": 11
-          }
-        ]
+      {
+        "number": 26,
+        "name": "N. Molina",
+        "pos": "DEF",
+        "rating": 6.9,
+        "minutes": 116,
+        "subbedOffAt": 116
       },
-      "teamStats": {
-        "_help": "Optional side-by-side comparison. Omit any key you don't have. For fouls/yellow/red/offsides a LOWER value is treated as better.",
-        "home": {
-          "shots": 16,
-          "shotsOnTarget": 7,
-          "possession": 58,
-          "passes": 520,
-          "passAccuracy": 88,
-          "fouls": 9,
-          "yellow": 1,
-          "red": 0,
-          "offsides": 2,
-          "corners": 7
-        },
-        "away": {
-          "shots": 9,
-          "shotsOnTarget": 4,
-          "possession": 42,
-          "passes": 360,
-          "passAccuracy": 82,
-          "fouls": 13,
-          "yellow": 2,
-          "red": 1,
-          "offsides": 1,
-          "corners": 3
-        }
+      {
+        "number": 13,
+        "name": "C. Romero",
+        "pos": "DEF",
+        "rating": 7.0,
+        "minutes": 120
+      },
+      {
+        "number": 19,
+        "name": "N. Otamendi",
+        "pos": "DEF",
+        "rating": 6.8,
+        "minutes": 120,
+        "yellow": 1,
+        "yellowAt": [104]
+      },
+      {
+        "number": 3,
+        "name": "N. Tagliafico",
+        "pos": "DEF",
+        "rating": 6.7,
+        "minutes": 120
+      },
+      {
+        "number": 7,
+        "name": "R. De Paul",
+        "pos": "MID",
+        "rating": 7.1,
+        "minutes": 102,
+        "subbedOffAt": 102
+      },
+      {
+        "number": 5,
+        "name": "L. Paredes",
+        "pos": "MID",
+        "rating": 6.6,
+        "minutes": 64,
+        "subbedOffAt": 64
+      },
+      {
+        "number": 24,
+        "name": "E. Fernández",
+        "pos": "MID",
+        "rating": 7.2,
+        "minutes": 120
+      },
+      {
+        "number": 20,
+        "name": "A. Mac Allister",
+        "pos": "MID",
+        "rating": 7.5,
+        "minutes": 120,
+        "assists": 1,
+        "assistsAt": [36]
+      },
+      {
+        "number": 11,
+        "name": "Á. Di María",
+        "pos": "FWD",
+        "rating": 8.7,
+        "minutes": 64,
+        "goals": 1,
+        "goalsAt": [36],
+        "subbedOffAt": 64
+      },
+      {
+        "number": 10,
+        "name": "L. Messi",
+        "pos": "FWD",
+        "rating": 9.3,
+        "minutes": 120,
+        "goals": 2,
+        "goalsAt": [23, 108],
+        "captain": true
       }
+    ],
+    "bench": [
+      {
+        "number": 8,
+        "name": "M. Acuña",
+        "rating": 6.8,
+        "minutes": 56,
+        "subbedOnAt": 64,
+        "forNumber": 11
+      },
+      {
+        "number": 18,
+        "name": "G. Rodríguez",
+        "rating": 6.5,
+        "minutes": 56,
+        "subbedOnAt": 64,
+        "forNumber": 5
+      }
+    ]
+  },
+  "away": {
+    "name": "France",
+    "formation": "4-2-3-1",
+    "color": "#1a2a6c",
+    "flag": "🇫🇷",
+    "starters": [
+      {
+        "number": 1,
+        "name": "H. Lloris",
+        "pos": "GK",
+        "rating": 6.4,
+        "minutes": 120,
+        "saves": 3,
+        "captain": true
+      },
+      {
+        "number": 5,
+        "name": "J. Koundé",
+        "pos": "DEF",
+        "rating": 6.4,
+        "minutes": 120
+      },
+      {
+        "number": 4,
+        "name": "R. Varane",
+        "pos": "DEF",
+        "rating": 6.6,
+        "minutes": 120
+      },
+      {
+        "number": 18,
+        "name": "D. Upamecano",
+        "pos": "DEF",
+        "rating": 6.7,
+        "minutes": 120
+      },
+      {
+        "number": 22,
+        "name": "T. Hernández",
+        "pos": "DEF",
+        "rating": 6.5,
+        "minutes": 120
+      },
+      {
+        "number": 14,
+        "name": "A. Rabiot",
+        "pos": "MID",
+        "rating": 6.3,
+        "minutes": 96,
+        "subbedOffAt": 96
+      },
+      {
+        "number": 8,
+        "name": "A. Tchouaméni",
+        "pos": "MID",
+        "rating": 6.6,
+        "minutes": 120
+      },
+      {
+        "number": 11,
+        "name": "O. Dembélé",
+        "pos": "FWD",
+        "rating": 5.9,
+        "minutes": 41,
+        "subbedOffAt": 41
+      },
+      {
+        "number": 6,
+        "name": "A. Griezmann",
+        "pos": "MID",
+        "rating": 6.4,
+        "minutes": 71,
+        "subbedOffAt": 71
+      },
+      {
+        "number": 9,
+        "name": "O. Giroud",
+        "pos": "FWD",
+        "rating": 5.8,
+        "minutes": 41,
+        "subbedOffAt": 41
+      },
+      {
+        "number": 10,
+        "name": "K. Mbappé",
+        "pos": "FWD",
+        "rating": 9.0,
+        "minutes": 120,
+        "goals": 3,
+        "goalsAt": [80, 81, 118]
+      }
+    ],
+    "bench": [
+      {
+        "number": 26,
+        "name": "R. Kolo Muani",
+        "rating": 6.6,
+        "minutes": 79,
+        "subbedOnAt": 41,
+        "forNumber": 11
+      },
+      {
+        "number": 12,
+        "name": "M. Thuram",
+        "rating": 6.5,
+        "minutes": 79,
+        "subbedOnAt": 41,
+        "forNumber": 9
+      }
+    ]
+  },
+  "teamStats": {
+    "home": {
+      "shots": 21,
+      "shotsOnTarget": 11,
+      "possession": 46,
+      "passes": 506,
+      "passAccuracy": 84,
+      "fouls": 22,
+      "yellow": 4,
+      "red": 0,
+      "offsides": 2,
+      "corners": 4
     },
-    {
-      "_example": "2) REAL-LIFE EXAMPLE — 2022 FIFA World Cup Final, Argentina 3-3 France (Argentina won 4-2 on penalties), Lusail, 18 Dec 2022. Lineups are real; ratings/stats are illustrative. Replace matchId with your real DB match id before importing.",
-      "matchId": 0,
-      "_matchId": "Replace 0 with the real database match id ('id N' on the card).",
-      "home": {
-        "name": "Argentina",
-        "formation": "4-4-2",
-        "color": "#6cabdd",
-        "flag": "🇦🇷",
-        "starters": [
-          {
-            "number": 23,
-            "name": "E. Martínez",
-            "pos": "GK",
-            "rating": 7.9,
-            "minutes": 120,
-            "saves": 5
-          },
-          {
-            "number": 26,
-            "name": "N. Molina",
-            "pos": "DEF",
-            "rating": 6.9,
-            "minutes": 116,
-            "shots": 1,
-            "subbedOffAt": 116
-          },
-          {
-            "number": 13,
-            "name": "C. Romero",
-            "pos": "DEF",
-            "rating": 7.0,
-            "minutes": 120
-          },
-          {
-            "number": 19,
-            "name": "N. Otamendi",
-            "pos": "DEF",
-            "rating": 6.8,
-            "minutes": 120,
-            "yellow": 1,
-            "yellowAt": [104]
-          },
-          {
-            "number": 3,
-            "name": "N. Tagliafico",
-            "pos": "DEF",
-            "rating": 6.7,
-            "minutes": 120
-          },
-          {
-            "number": 7,
-            "name": "R. De Paul",
-            "pos": "MID",
-            "rating": 7.1,
-            "minutes": 102,
-            "shots": 1,
-            "subbedOffAt": 102
-          },
-          {
-            "number": 5,
-            "name": "L. Paredes",
-            "pos": "MID",
-            "rating": 6.6,
-            "minutes": 64,
-            "subbedOffAt": 64,
-            "yellow": 1,
-            "yellowAt": [40]
-          },
-          {
-            "number": 24,
-            "name": "E. Fernández",
-            "pos": "MID",
-            "rating": 7.2,
-            "minutes": 120,
-            "shots": 2
-          },
-          {
-            "number": 20,
-            "name": "A. Mac Allister",
-            "pos": "MID",
-            "rating": 7.5,
-            "minutes": 120,
-            "shots": 1,
-            "assists": 1,
-            "assistsAt": [36]
-          },
-          {
-            "number": 11,
-            "name": "Á. Di María",
-            "pos": "FWD",
-            "rating": 8.7,
-            "minutes": 64,
-            "shots": 2,
-            "goals": 1,
-            "goalsAt": [36],
-            "subbedOffAt": 64
-          },
-          {
-            "number": 10,
-            "name": "L. Messi",
-            "pos": "FWD",
-            "rating": 9.3,
-            "minutes": 120,
-            "shots": 5,
-            "goals": 2,
-            "goalsAt": [23, 108],
-            "captain": true
-          }
-        ],
-        "bench": [
-          {
-            "number": 8,
-            "name": "M. Acuña",
-            "rating": 6.8,
-            "minutes": 56,
-            "subbedOnAt": 64,
-            "forNumber": 11
-          },
-          {
-            "number": 18,
-            "name": "G. Rodríguez",
-            "rating": 6.5,
-            "minutes": 56,
-            "subbedOnAt": 64,
-            "forNumber": 5
-          },
-          {
-            "number": 4,
-            "name": "G. Montiel",
-            "rating": 6.7,
-            "minutes": 4,
-            "subbedOnAt": 116,
-            "forNumber": 26
-          },
-          {
-            "number": 22,
-            "name": "L. Martínez",
-            "rating": 6.4,
-            "minutes": 18,
-            "subbedOnAt": 102,
-            "forNumber": 7
-          }
-        ]
-      },
-      "away": {
-        "name": "France",
-        "formation": "4-2-3-1",
-        "color": "#1a2a6c",
-        "flag": "🇫🇷",
-        "starters": [
-          {
-            "number": 1,
-            "name": "H. Lloris",
-            "pos": "GK",
-            "rating": 6.4,
-            "minutes": 120,
-            "saves": 3,
-            "captain": true
-          },
-          {
-            "number": 5,
-            "name": "J. Koundé",
-            "pos": "DEF",
-            "rating": 6.4,
-            "minutes": 120
-          },
-          {
-            "number": 4,
-            "name": "R. Varane",
-            "pos": "DEF",
-            "rating": 6.6,
-            "minutes": 120
-          },
-          {
-            "number": 18,
-            "name": "D. Upamecano",
-            "pos": "DEF",
-            "rating": 6.7,
-            "minutes": 120,
-            "yellow": 1,
-            "yellowAt": [55]
-          },
-          {
-            "number": 22,
-            "name": "T. Hernández",
-            "pos": "DEF",
-            "rating": 6.5,
-            "minutes": 120
-          },
-          {
-            "number": 14,
-            "name": "A. Rabiot",
-            "pos": "MID",
-            "rating": 6.3,
-            "minutes": 96,
-            "subbedOffAt": 96
-          },
-          {
-            "number": 8,
-            "name": "A. Tchouaméni",
-            "pos": "MID",
-            "rating": 6.6,
-            "minutes": 120
-          },
-          {
-            "number": 11,
-            "name": "O. Dembélé",
-            "pos": "FWD",
-            "rating": 5.9,
-            "minutes": 41,
-            "subbedOffAt": 41
-          },
-          {
-            "number": 6,
-            "name": "A. Griezmann",
-            "pos": "MID",
-            "rating": 6.4,
-            "minutes": 71,
-            "shots": 1,
-            "subbedOffAt": 71
-          },
-          {
-            "number": 9,
-            "name": "O. Giroud",
-            "pos": "FWD",
-            "rating": 5.8,
-            "minutes": 41,
-            "subbedOffAt": 41
-          },
-          {
-            "number": 10,
-            "name": "K. Mbappé",
-            "pos": "FWD",
-            "rating": 9.0,
-            "minutes": 120,
-            "shots": 6,
-            "goals": 3,
-            "goalsAt": [80, 81, 118]
-          }
-        ],
-        "bench": [
-          {
-            "number": 26,
-            "name": "R. Kolo Muani",
-            "rating": 6.6,
-            "minutes": 79,
-            "shots": 2,
-            "subbedOnAt": 41,
-            "forNumber": 11
-          },
-          {
-            "number": 12,
-            "name": "M. Thuram",
-            "rating": 6.5,
-            "minutes": 79,
-            "subbedOnAt": 41,
-            "forNumber": 9
-          },
-          {
-            "number": 20,
-            "name": "K. Coman",
-            "rating": 6.3,
-            "minutes": 49,
-            "subbedOnAt": 71,
-            "forNumber": 6
-          },
-          {
-            "number": 25,
-            "name": "E. Camavinga",
-            "rating": 6.4,
-            "minutes": 24,
-            "subbedOnAt": 96,
-            "forNumber": 14
-          }
-        ]
-      },
-      "teamStats": {
-        "home": {
-          "shots": 21,
-          "shotsOnTarget": 11,
-          "possession": 46,
-          "passes": 506,
-          "passAccuracy": 84,
-          "fouls": 22,
-          "yellow": 4,
-          "red": 0,
-          "offsides": 2,
-          "corners": 4
-        },
-        "away": {
-          "shots": 28,
-          "shotsOnTarget": 9,
-          "possession": 54,
-          "passes": 600,
-          "passAccuracy": 87,
-          "fouls": 19,
-          "yellow": 5,
-          "red": 0,
-          "offsides": 1,
-          "corners": 6
-        }
-      }
+    "away": {
+      "shots": 28,
+      "shotsOnTarget": 9,
+      "possession": 54,
+      "passes": 600,
+      "passAccuracy": 87,
+      "fouls": 19,
+      "yellow": 5,
+      "red": 0,
+      "offsides": 1,
+      "corners": 6
     }
-  ]
+  }
 }

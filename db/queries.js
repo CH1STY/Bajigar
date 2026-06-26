@@ -489,6 +489,22 @@ function getLineupsForMatches(ids) {
   return out;
 }
 
+// Brief list of every match for pickers (id, teams, tournament, number).
+const listMatchesBriefStmt = db.prepare(`
+  SELECT m.id, m.match_number, m.team_a, m.team_b, m.type,
+         m.tournament_id, m.status, t.name AS tournament_name,
+         CASE WHEN ml.match_id IS NULL THEN 0 ELSE 1 END AS has_lineup
+  FROM matches m
+  LEFT JOIN tournaments t ON t.id = m.tournament_id
+  LEFT JOIN match_lineups ml ON ml.match_id = m.id
+  ORDER BY (m.tournament_id IS NULL), m.tournament_id, m.match_number, m.id
+`);
+
+/** @returns {object[]} compact match rows for selection UIs */
+function listMatchesBrief() {
+  return listMatchesBriefStmt.all();
+}
+
 module.exports = {
   db,
   ensureUser,
@@ -521,4 +537,5 @@ module.exports = {
   getLineup,
   deleteLineup,
   getLineupsForMatches,
+  listMatchesBrief,
 };

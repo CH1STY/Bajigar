@@ -1,0 +1,1423 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Admin · Upload Lineup</title>
+    <style>
+      :root {
+        --bg: #0e1116;
+        --panel: #171c26;
+        --panel-2: #1f2633;
+        --line: #2a3242;
+        --text: #e6e9ef;
+        --muted: #93a0b5;
+        --accent: #9b59b6;
+        --accent-2: #5865f2;
+        --green: #57f287;
+        --amber: #faa61a;
+        --red: #ed4245;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        line-height: 1.5;
+        padding: 24px 16px 64px;
+      }
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .split {
+        display: flex;
+        gap: 18px;
+        align-items: flex-start;
+      }
+      .split > * {
+        flex: 1;
+        min-width: 0;
+        margin-bottom: 18px;
+      }
+      @media (max-width: 880px) {
+        .split {
+          flex-direction: column;
+        }
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 4px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0 0 24px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 18px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      input[type="password"],
+      input[type="text"],
+      input[type="number"],
+      textarea {
+        width: 100%;
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--text);
+        padding: 10px 12px;
+        font-size: 14px;
+        font-family: inherit;
+      }
+      input::placeholder {
+        color: var(--muted);
+      }
+      textarea {
+        min-height: 200px;
+        font-family: "Cascadia Code", "Consolas", monospace;
+        font-size: 13px;
+        resize: vertical;
+        white-space: pre;
+        overflow-wrap: normal;
+        overflow-x: auto;
+      }
+      input:focus,
+      textarea:focus {
+        outline: none;
+        border-color: var(--accent-2);
+      }
+      .drop {
+        border: 2px dashed var(--line);
+        border-radius: 10px;
+        padding: 28px 16px;
+        text-align: center;
+        color: var(--muted);
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          background 0.15s;
+        margin-bottom: 12px;
+      }
+      .drop:hover,
+      .drop.drag {
+        border-color: var(--accent-2);
+        background: rgba(88, 101, 242, 0.08);
+        color: var(--text);
+      }
+      .drop strong {
+        color: var(--accent-2);
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      button {
+        background: var(--accent-2);
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        padding: 11px 20px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover {
+        filter: brightness(1.1);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      button.ghost {
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--line);
+      }
+      button.danger {
+        background: transparent;
+        color: var(--red);
+        border: 1px solid var(--red);
+      }
+      button.danger:hover {
+        background: var(--red);
+        color: #fff;
+        filter: none;
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      .file-name {
+        font-size: 13px;
+        color: var(--green);
+      }
+      .combo {
+        position: relative;
+        max-width: 480px;
+      }
+      .combo input {
+        width: 100%;
+      }
+      .combo-list {
+        position: absolute;
+        z-index: 20;
+        top: calc(100% + 6px);
+        left: 0;
+        right: 0;
+        max-height: 300px;
+        overflow-y: auto;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 4px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+      }
+      .combo-list::-webkit-scrollbar {
+        width: 10px;
+      }
+      .combo-list::-webkit-scrollbar-thumb {
+        background: var(--line);
+        border-radius: 6px;
+        border: 2px solid var(--panel);
+      }
+      .combo-item {
+        padding: 9px 11px;
+        cursor: pointer;
+        border-radius: 7px;
+        font-size: 13px;
+      }
+      .combo-item:hover,
+      .combo-item.active {
+        background: var(--panel-2);
+      }
+      .combo-item .ci-id {
+        display: inline-block;
+        color: var(--accent-2);
+        font-weight: 700;
+        font-family: "Cascadia Code", "Consolas", monospace;
+        font-size: 12px;
+        margin-right: 8px;
+      }
+      .combo-item .ci-teams {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .combo-item .ci-meta {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 3px;
+      }
+      .combo-item .ci-has {
+        color: var(--green);
+        font-weight: 600;
+      }
+      .combo-empty {
+        padding: 12px;
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+      }
+      .example-head {
+        display: flex;
+        justify-content: flex-end;
+        margin: 8px 0 -4px;
+      }
+      .copy-btn {
+        font-size: 12px;
+        padding: 4px 10px;
+      }
+      .sofa-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 18px;
+        margin-bottom: 14px;
+      }
+      .sofa-field {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .sofa-ep {
+        display: block;
+        margin: 4px 0 8px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        color: var(--muted);
+        word-break: break-all;
+      }
+      .sofa-ta {
+        min-height: 110px;
+      }
+      .req {
+        color: var(--amber);
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .opt {
+        color: var(--muted);
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+
+      .result {
+        margin-top: 14px;
+        padding: 12px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        display: none;
+        white-space: pre-wrap;
+      }
+      .result.show {
+        display: block;
+      }
+      .result.ok {
+        background: rgba(87, 242, 135, 0.1);
+        border: 1px solid rgba(87, 242, 135, 0.4);
+        color: var(--green);
+      }
+      .result.err {
+        background: rgba(237, 66, 69, 0.1);
+        border: 1px solid rgba(237, 66, 69, 0.4);
+        color: #ff8a8c;
+      }
+      details {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 0 20px;
+        margin-bottom: 18px;
+      }
+      summary {
+        cursor: pointer;
+        padding: 16px 0;
+        font-weight: 600;
+        font-size: 15px;
+        list-style: none;
+      }
+      summary::-webkit-details-marker {
+        display: none;
+      }
+      summary::before {
+        content: "▸ ";
+        color: var(--accent-2);
+      }
+      details[open] summary::before {
+        content: "▾ ";
+      }
+      pre {
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+        overflow-x: auto;
+        font-size: 12px;
+        margin: 0 0 16px;
+        max-height: 360px;
+      }
+      a.dl {
+        color: var(--accent-2);
+        text-decoration: none;
+        font-size: 13px;
+      }
+      a.dl:hover {
+        text-decoration: underline;
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+      .topbar a {
+        color: var(--muted);
+        font-size: 13px;
+        text-decoration: none;
+      }
+      .topbar a:hover {
+        color: var(--text);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="topbar">
+        <span></span>
+        <a href="/">← Back to dashboard</a>
+      </div>
+      <h1>🔐 Upload Player-Analysis Lineup</h1>
+      <p class="sub">
+        Admin-only. Provide the access password, then upload a
+        <code>.json</code> file or paste JSON. Existing data for a match is
+        replaced.
+      </p>
+
+      <div class="split">
+        <details id="sofaBuilder" class="panel" open>
+          <summary>Build from Sofascore network JSON</summary>
+          <p class="hint" style="margin-top: 0">
+            Paste the raw JSON from your browser's DevTools &rarr; Network for
+            this match. <strong>lineups</strong> is required;
+            <strong>incidents</strong>, <strong>statistics</strong> and
+            <strong>best-players</strong> are optional and add goal/card/sub
+            minutes, team stats and the official Player of the Match. Pick the
+            target match in the panel below first so the team names and match id
+            are filled in.
+          </p>
+          <div class="sofa-grid">
+            <div class="sofa-field">
+              <label for="sofaLineups"
+                >1. lineups JSON <span class="req">required</span></label
+              >
+              <code class="sofa-ep">GET /api/v1/event/{id}/lineups</code>
+              <textarea
+                id="sofaLineups"
+                class="sofa-ta"
+                spellcheck="false"
+                placeholder='{ "home": { "players": [ ... ] }, "away": { ... } }'
+              ></textarea>
+            </div>
+            <div class="sofa-field">
+              <label for="sofaIncidents"
+                >2. incidents JSON <span class="opt">optional</span></label
+              >
+              <code class="sofa-ep">GET /api/v1/event/{id}/incidents</code>
+              <textarea
+                id="sofaIncidents"
+                class="sofa-ta"
+                spellcheck="false"
+                placeholder='{ "incidents": [ ... ] }'
+              ></textarea>
+            </div>
+            <div class="sofa-field">
+              <label for="sofaStats"
+                >3. statistics JSON <span class="opt">optional</span></label
+              >
+              <code class="sofa-ep">GET /api/v1/event/{id}/statistics</code>
+              <textarea
+                id="sofaStats"
+                class="sofa-ta"
+                spellcheck="false"
+                placeholder='{ "statistics": [ ... ] }'
+              ></textarea>
+            </div>
+            <div class="sofa-field">
+              <label for="sofaBest"
+                >4. best-players JSON <span class="opt">optional</span></label
+              >
+              <code class="sofa-ep">GET /api/v1/event/{id}/best-players</code>
+              <textarea
+                id="sofaBest"
+                class="sofa-ta"
+                spellcheck="false"
+                placeholder='{ "playerOfTheMatch": { ... } }'
+              ></textarea>
+            </div>
+          </div>
+          <div class="row" style="margin-bottom: 16px">
+            <button id="sofaConvert" type="button">
+              Convert &rarr; fill upload form
+            </button>
+            <button class="ghost" id="sofaClear" type="button">
+              Clear builder
+            </button>
+            <span class="hint" id="sofaStatus" style="margin: 0"></span>
+          </div>
+        </details>
+
+        <div class="panel">
+          <div style="margin-bottom: 16px">
+            <label for="pw">Admin password</label>
+            <div class="row">
+              <input
+                id="pw"
+                type="password"
+                autocomplete="off"
+                placeholder="Enter the upload password"
+                style="flex: 1; min-width: 200px"
+              />
+              <button id="unlock" type="button">Unlock</button>
+              <button class="ghost" id="lock" type="button" hidden>Lock</button>
+            </div>
+            <div class="hint" id="authStatus">
+              🔒 Locked — unlock to enable uploads. A session lasts 8 hours.
+            </div>
+          </div>
+
+          <label>Lineup JSON</label>
+          <div class="drop" id="drop">
+            <strong>Choose a .json file</strong> or drag &amp; drop it here
+            <div class="file-name" id="fileName"></div>
+          </div>
+          <input id="file" type="file" accept="application/json,.json" hidden />
+
+          <label for="json" style="margin-top: 4px">…or paste JSON</label>
+          <textarea
+            id="json"
+            spellcheck="false"
+            placeholder='{ "matchId": 12, "home": { … }, "away": { … } }'
+          ></textarea>
+          <div class="hint">
+            Accepts a single match object, an array of them, or
+            <code>{ "lineups": [ … ] }</code>. Max 50 matches / 1 MB.
+          </div>
+
+          <div style="margin-top: 16px">
+            <label for="matchSearch"
+              >Match
+              <span style="text-transform: none; font-weight: 400"
+                >(optional)</span
+              ></label
+            >
+            <div class="combo" id="combo">
+              <input
+                id="matchSearch"
+                type="text"
+                autocomplete="off"
+                placeholder="Search by id, team, tournament or match #"
+              />
+              <div class="combo-list" id="matchList" hidden></div>
+            </div>
+            <input id="matchId" type="hidden" />
+            <div class="hint">
+              Only used when the JSON has a single match with no
+              <code>matchId</code>. Pick the target match here; the DB id is
+              shown as “id N” on a match card. Ignored if the JSON already
+              includes one.
+            </div>
+          </div>
+
+          <div class="row" style="margin-top: 16px">
+            <button id="upload">Upload lineup</button>
+            <button class="ghost" id="clear" type="button">Clear</button>
+            <button class="danger" id="deleteLineup" type="button">
+              Delete lineup
+            </button>
+            <a class="dl" href="/lineup-example.json" download
+              >⬇ Download example JSON</a
+            >
+          </div>
+          <div class="hint" style="margin-top: 8px">
+            <strong>Delete lineup</strong> removes the stored Player-Analysis
+            data for the match selected above. Pick a match, then confirm. You
+            must be unlocked.
+          </div>
+
+          <div class="result" id="result"></div>
+        </div>
+      </div>
+
+      <details>
+        <summary>Show single-lineup example (one match)</summary>
+        <div class="example-head">
+          <button class="copy-btn ghost" type="button" data-copy="example">
+            Copy JSON
+          </button>
+        </div>
+        <pre id="example">Loading…</pre>
+      </details>
+
+      <details>
+        <summary>Show bulk-upload example (multiple matches)</summary>
+        <div class="example-head">
+          <button class="copy-btn ghost" type="button" data-copy="exampleBulk">
+            Copy JSON
+          </button>
+        </div>
+        <pre id="exampleBulk">
+{
+  "lineups": [
+    {
+      "matchId": 12,
+      "home": {
+        "name": "Argentina",
+        "formation": "4-4-2",
+        "starters": [
+          { "number": 23, "name": "E. Martínez", "pos": "GK" },
+          { "number": 10, "name": "L. Messi", "pos": "FW", "goals": 2, "captain": true }
+        ],
+        "bench": [
+          { "number": 22, "name": "L. Martínez", "pos": "FW" }
+        ]
+      },
+      "away": {
+        "name": "France",
+        "formation": "4-2-3-1",
+        "starters": [
+          { "number": 10, "name": "K. Mbappé", "pos": "FW", "goals": 3 }
+        ],
+        "bench": []
+      }
+    },
+    {
+      "matchId": 13,
+      "home": { "name": "Croatia", "formation": "4-3-3", "starters": [], "bench": [] },
+      "away": { "name": "Morocco", "formation": "4-1-4-1", "starters": [], "bench": [] }
+    }
+  ]
+}</pre
+        >
+        <div class="hint" style="margin-top: 8px">
+          A bulk file is an array of match objects, either bare
+          <code>[ {…}, {…} ]</code> or wrapped as
+          <code>{ "lineups": [ {…}, {…} ] }</code>. Each entry needs its own
+          <code>matchId</code>. Up to 50 matches per upload. For a single match
+          you may omit <code>matchId</code> and pick the match above instead.
+        </div>
+      </details>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const fileInput = $("file");
+      const drop = $("drop");
+      const fileName = $("fileName");
+      const jsonArea = $("json");
+      const result = $("result");
+      const pw = $("pw");
+      const authStatus = $("authStatus");
+      let unlocked = false;
+      let expiryTimer = null;
+
+      function showResult(kind, text) {
+        result.className = "result show " + kind;
+        result.textContent = text;
+      }
+
+      function setLocked() {
+        unlocked = false;
+        if (expiryTimer) clearTimeout(expiryTimer);
+        pw.disabled = false;
+        pw.value = "";
+        $("unlock").hidden = false;
+        $("lock").hidden = true;
+        authStatus.textContent =
+          "🔒 Locked — unlock to enable uploads. A session lasts 8 hours.";
+        authStatus.style.color = "";
+      }
+
+      function setUnlocked(expiresInMs) {
+        unlocked = true;
+        pw.disabled = true;
+        pw.value = "••••••••";
+        $("unlock").hidden = true;
+        $("lock").hidden = false;
+        authStatus.style.color = "var(--green)";
+        const until = Date.now() + (expiresInMs || 0);
+        const tick = () => {
+          const left = Math.max(0, until - Date.now());
+          if (left <= 0) {
+            authStatus.style.color = "var(--amber)";
+            authStatus.textContent =
+              "⌛ Session expired — unlock again to upload.";
+            unlocked = false;
+            pw.disabled = false;
+            pw.value = "";
+            $("unlock").hidden = false;
+            $("lock").hidden = true;
+            return;
+          }
+          const totalSec = Math.floor(left / 1000);
+          const h = Math.floor(totalSec / 3600);
+          const m = Math.floor((totalSec % 3600) / 60);
+          const s = totalSec % 60;
+          const pretty =
+            (h > 0 ? h + "h " : "") +
+            m +
+            "m " +
+            String(s).padStart(2, "0") +
+            "s";
+          authStatus.textContent =
+            "🔓 Unlocked — session expires in " + pretty + ".";
+          expiryTimer = setTimeout(tick, 1000);
+        };
+        tick();
+      }
+
+      async function unlock() {
+        const password = pw.value;
+        if (!password) {
+          showResult("err", "Enter the admin password.");
+          return;
+        }
+        const btn = $("unlock");
+        btn.disabled = true;
+        btn.textContent = "…";
+        try {
+          const res = await fetch("/api/admin/login", {
+            method: "POST",
+            headers: { "x-admin-password": password },
+            credentials: "same-origin",
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.ok) {
+            result.className = "result";
+            setUnlocked(data.expiresInMs);
+          } else {
+            showResult("err", "❌ " + (data.error || "Incorrect password."));
+          }
+        } catch (err) {
+          showResult("err", "❌ Network error: " + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Unlock";
+        }
+      }
+
+      async function lock() {
+        try {
+          await fetch("/api/admin/logout", {
+            method: "POST",
+            credentials: "same-origin",
+          });
+        } catch {
+          /* ignore */
+        }
+        setLocked();
+        result.className = "result";
+      }
+
+      $("unlock").addEventListener("click", unlock);
+      $("lock").addEventListener("click", lock);
+      pw.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !unlocked) unlock();
+      });
+
+      // Searchable match picker.
+      const matchSearch = $("matchSearch");
+      const matchList = $("matchList");
+      const matchIdHidden = $("matchId");
+      let allMatches = [];
+      let activeIdx = -1;
+
+      function matchLabel(m) {
+        const t = m.tournament_id
+          ? "T" +
+            m.tournament_id +
+            (m.tournament_name ? " " + m.tournament_name : "")
+          : "Standalone";
+        return (
+          "id " +
+          m.id +
+          " · " +
+          m.team_a +
+          " v " +
+          m.team_b +
+          " · " +
+          t +
+          " · #" +
+          (m.match_number != null ? m.match_number : "?")
+        );
+      }
+
+      function renderMatches(filter) {
+        const q = (filter || "").toLowerCase().trim();
+        const terms = q.split(/\s+/).filter(Boolean);
+        const rows = allMatches.filter((m) => {
+          if (!terms.length) return true;
+          const hay = (
+            "id " +
+            m.id +
+            " " +
+            m.team_a +
+            " " +
+            m.team_b +
+            " t" +
+            (m.tournament_id || "") +
+            " " +
+            (m.tournament_name || "") +
+            " #" +
+            (m.match_number || "") +
+            " " +
+            (m.type || "")
+          ).toLowerCase();
+          return terms.every((t) => hay.includes(t));
+        });
+        activeIdx = -1;
+        if (!rows.length) {
+          matchList.innerHTML =
+            '<div class="combo-empty">No matching matches.</div>';
+          matchList.hidden = false;
+          return;
+        }
+        matchList.innerHTML = rows
+          .slice(0, 100)
+          .map((m) => {
+            const t = m.tournament_id
+              ? "T" +
+                m.tournament_id +
+                (m.tournament_name ? " · " + m.tournament_name : "")
+              : "Standalone";
+            const has = m.has_lineup
+              ? ' <span class="ci-has">• has lineup</span>'
+              : "";
+            return (
+              '<div class="combo-item" data-id="' +
+              m.id +
+              '" data-label="' +
+              matchLabel(m).replace(/"/g, "&quot;") +
+              '">' +
+              '<div><span class="ci-id">id ' +
+              m.id +
+              '</span><span class="ci-teams">' +
+              m.team_a +
+              " v " +
+              m.team_b +
+              "</span>" +
+              has +
+              "</div>" +
+              '<div class="ci-meta">' +
+              t +
+              " · match #" +
+              (m.match_number != null ? m.match_number : "?") +
+              (m.type ? " · " + m.type : "") +
+              "</div>" +
+              "</div>"
+            );
+          })
+          .join("");
+        matchList.hidden = false;
+      }
+
+      function selectMatch(id, label) {
+        matchIdHidden.value = id;
+        matchSearch.value = label;
+        matchList.hidden = true;
+      }
+
+      matchList.addEventListener("click", (e) => {
+        const item = e.target.closest(".combo-item");
+        if (!item) return;
+        selectMatch(item.dataset.id, item.dataset.label);
+      });
+
+      matchSearch.addEventListener("input", () => {
+        matchIdHidden.value = "";
+        renderMatches(matchSearch.value);
+      });
+      matchSearch.addEventListener("focus", () => {
+        if (allMatches.length) renderMatches(matchSearch.value);
+      });
+      matchSearch.addEventListener("keydown", (e) => {
+        const items = Array.from(matchList.querySelectorAll(".combo-item"));
+        if (!items.length) return;
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          activeIdx = Math.min(activeIdx + 1, items.length - 1);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          activeIdx = Math.max(activeIdx - 1, 0);
+        } else if (e.key === "Enter") {
+          if (activeIdx >= 0 && items[activeIdx]) {
+            e.preventDefault();
+            const it = items[activeIdx];
+            selectMatch(it.dataset.id, it.dataset.label);
+          }
+          return;
+        } else if (e.key === "Escape") {
+          matchList.hidden = true;
+          return;
+        } else {
+          return;
+        }
+        items.forEach((it, i) =>
+          it.classList.toggle("active", i === activeIdx),
+        );
+        if (items[activeIdx])
+          items[activeIdx].scrollIntoView({ block: "nearest" });
+      });
+      document.addEventListener("click", (e) => {
+        if (!$("combo").contains(e.target)) matchList.hidden = true;
+      });
+
+      function loadMatches() {
+        fetch("/api/matches", { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : []))
+          .then((rows) => {
+            allMatches = Array.isArray(rows) ? rows : [];
+          })
+          .catch(() => {
+            allMatches = [];
+          });
+      }
+      loadMatches();
+
+      // Restore an existing session on load so a refresh doesn't require
+      // re-entering the password (the cookie is HttpOnly, so ask the server).
+      function restoreSession() {
+        fetch("/api/admin/session", { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (data && data.authorised && data.expiresInMs > 0) {
+              setUnlocked(data.expiresInMs);
+            }
+          })
+          .catch(() => {});
+      }
+      restoreSession();
+
+      // Team -> jersey colour map (from the DB team list). Used to fill
+      // home/away `color` during conversion, overriding Sofascore's kit colour.
+      let teamColors = {};
+      fetch("/team-colors.json", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : {}))
+        .then((map) => {
+          teamColors = map && typeof map === "object" ? map : {};
+        })
+        .catch(() => {});
+
+      // ---- Sofascore -> our lineup format converter ----
+      const sofaNorm = (s) =>
+        (s || "")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .replace(/\./g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      const sofaLast = (s) => {
+        const p = sofaNorm(s).split(" ");
+        return p[p.length - 1] || "";
+      };
+      const sofaPos = (letter) => {
+        const x = (letter || "").toUpperCase();
+        if (x === "G") return "GK";
+        if (x === "D") return "DEF";
+        if (x === "M") return "MID";
+        if (x === "F") return "FWD";
+        return null;
+      };
+
+      function sofaBuildTeam(side, statGoals) {
+        const team = { name: "", starters: [], bench: [] };
+        if (side && side.formation) team.formation = String(side.formation);
+        const color = side && side.playerColor && side.playerColor.primary;
+        if (color) team.color = color;
+        const index = { byId: new Map(), byName: new Map() };
+        for (const it of (side && side.players) || []) {
+          const p = it.player || {};
+          const st = it.statistics || {};
+          let number = it.shirtNumber != null ? it.shirtNumber : undefined;
+          if (number == null && p.jerseyNumber != null)
+            number = Number(p.jerseyNumber);
+          const obj = {
+            number,
+            name: p.shortName || p.name || "",
+            pos: sofaPos(it.position || p.position),
+          };
+          const r = parseFloat(st.rating);
+          if (!isNaN(r)) obj.rating = r;
+          if (st.minutesPlayed != null) obj.minutes = st.minutesPlayed;
+          if (statGoals) {
+            if (st.goals) obj.goals = st.goals;
+            if (st.goalAssist) obj.assists = st.goalAssist;
+          }
+          if (st.saves) obj.saves = st.saves;
+          if (it.captain === true || p.captain === true) obj.captain = true;
+          if (it.substitute === true) team.bench.push(obj);
+          else team.starters.push(obj);
+          if (p.id != null) index.byId.set(String(p.id), obj);
+          if (obj.name) index.byName.set(sofaNorm(obj.name), obj);
+          if (obj.name && !index.byName.has(sofaLast(obj.name)))
+            index.byName.set(sofaLast(obj.name), obj);
+        }
+        return { team, index };
+      }
+
+      function sofaEnrich(list, homeIdx, awayIdx) {
+        const find = (idx, pl) => {
+          if (!pl) return null;
+          if (pl.id != null && idx.byId.has(String(pl.id)))
+            return idx.byId.get(String(pl.id));
+          const n = sofaNorm(pl.shortName || pl.name);
+          if (idx.byName.has(n)) return idx.byName.get(n);
+          return idx.byName.get(sofaLast(pl.shortName || pl.name)) || null;
+        };
+        for (const inc of list || []) {
+          const idx = inc.isHome ? homeIdx : awayIdx;
+          const type = inc.incidentType;
+          if (type === "goal") {
+            if (inc.incidentClass !== "ownGoal") {
+              const sc = find(idx, inc.player);
+              if (sc) {
+                sc.goals = (sc.goals || 0) + 1;
+                (sc.goalsAt = sc.goalsAt || []).push(inc.time);
+              }
+            }
+            const as = find(idx, inc.assist1);
+            if (as) {
+              as.assists = (as.assists || 0) + 1;
+              (as.assistsAt = as.assistsAt || []).push(inc.time);
+            }
+          } else if (type === "card") {
+            const pl = find(idx, inc.player);
+            if (pl) {
+              if (inc.incidentClass === "yellow") {
+                pl.yellow = (pl.yellow || 0) + 1;
+                (pl.yellowAt = pl.yellowAt || []).push(inc.time);
+              } else {
+                pl.red = 1;
+                (pl.redAt = pl.redAt || []).push(inc.time);
+              }
+            }
+          } else if (type === "substitution") {
+            const outP = find(idx, inc.playerOut);
+            const inP = find(idx, inc.playerIn);
+            if (outP) outP.subbedOffAt = inc.time;
+            if (inP) {
+              inP.subbedOnAt = inc.time;
+              if (outP && outP.number != null) inP.forNumber = outP.number;
+            }
+          }
+        }
+      }
+
+      function sofaStatVal(str, val, key) {
+        if (key === "passAccuracy") {
+          if (typeof str === "string") {
+            const m = str.match(/\((\d+)%\)/);
+            if (m) return Number(m[1]);
+          }
+          return typeof val === "number" ? val : null;
+        }
+        if (key === "possession") {
+          if (typeof val === "number") return Math.round(val);
+          if (typeof str === "string") {
+            const m = str.match(/(\d+)/);
+            if (m) return Number(m[1]);
+          }
+          return null;
+        }
+        if (key === "expectedGoals") {
+          const n = typeof val === "number" ? val : parseFloat(str);
+          return isNaN(n) ? null : Math.round(n * 100) / 100;
+        }
+        if (typeof val === "number") return val;
+        const n = parseFloat(str);
+        return isNaN(n) ? null : n;
+      }
+
+      function sofaTeamStats(statsJson) {
+        const blocks = (statsJson && statsJson.statistics) || [];
+        const all = blocks.find((b) => b.period === "ALL") || blocks[0];
+        if (!all) return null;
+        const want = {
+          "Ball possession": "possession",
+          "Total shots": "shots",
+          "Shots on target": "shotsOnTarget",
+          "Corner kicks": "corners",
+          Fouls: "fouls",
+          Offsides: "offsides",
+          Passes: "passes",
+          "Accurate passes": "passAccuracy",
+          "Expected goals (xG)": "expectedGoals",
+          "Expected goals": "expectedGoals",
+        };
+        const home = {};
+        const away = {};
+        for (const g of all.groups || []) {
+          for (const it of g.statisticsItems || []) {
+            const key = want[it.name];
+            if (!key) continue;
+            const hv = sofaStatVal(it.home, it.homeValue, key);
+            const av = sofaStatVal(it.away, it.awayValue, key);
+            if (hv != null) home[key] = hv;
+            if (av != null) away[key] = av;
+          }
+        }
+        return {
+          home: Object.keys(home).length ? home : null,
+          away: Object.keys(away).length ? away : null,
+        };
+      }
+
+      function sofaResolveMotm(best, homeTeam, awayTeam) {
+        let name = null;
+        if (best && best.playerOfTheMatch && best.playerOfTheMatch.player) {
+          const p = best.playerOfTheMatch.player;
+          name = p.shortName || p.name;
+        }
+        if (!name) {
+          let top = null;
+          for (const [side, t] of [
+            ["home", homeTeam],
+            ["away", awayTeam],
+          ]) {
+            for (const p of [...t.starters, ...t.bench]) {
+              if (p.rating != null && (!top || p.rating > top.rating))
+                top = { team: side, number: p.number, rating: p.rating };
+            }
+          }
+          return top ? { team: top.team, number: top.number } : null;
+        }
+        const target = sofaNorm(name);
+        const lt = sofaLast(name);
+        const findIn = (t) =>
+          [...t.starters, ...t.bench].find(
+            (p) => sofaNorm(p.name) === target || sofaLast(p.name) === lt,
+          );
+        const h = findIn(homeTeam);
+        if (h) return { team: "home", number: h.number };
+        const a = findIn(awayTeam);
+        if (a) return { team: "away", number: a.number };
+        return null;
+      }
+
+      function convertSofascore(opts) {
+        const { lineups, incidents, statistics, best, matchId } = opts;
+        if (!lineups || (!lineups.home && !lineups.away))
+          throw new Error(
+            "lineups JSON is required and must contain home/away players.",
+          );
+        const statGoals = !incidents;
+        const H = sofaBuildTeam(lineups.home, statGoals);
+        const A = sofaBuildTeam(lineups.away, statGoals);
+        if (incidents)
+          sofaEnrich(incidents.incidents || incidents, H.index, A.index);
+        if (opts.homeName) H.team.name = opts.homeName;
+        if (opts.awayName) A.team.name = opts.awayName;
+        // Prefer the configured team colour over Sofascore's kit colour.
+        if (opts.homeColor) H.team.color = opts.homeColor;
+        if (opts.awayColor) A.team.color = opts.awayColor;
+        const result = {};
+        if (matchId) result.matchId = Number(matchId);
+        const motm = sofaResolveMotm(best, H.team, A.team);
+        if (motm) result.motm = motm;
+        result.home = H.team;
+        result.away = A.team;
+        if (statistics) {
+          const ts = sofaTeamStats(statistics);
+          if (ts && (ts.home || ts.away)) {
+            result.teamStats = {};
+            if (ts.home) result.teamStats.home = ts.home;
+            if (ts.away) result.teamStats.away = ts.away;
+          }
+        }
+        return result;
+      }
+
+      function parseSofaField(id, label, required) {
+        const v = $(id).value.trim();
+        if (!v) {
+          if (required) throw new Error(label + " JSON is required.");
+          return null;
+        }
+        try {
+          return JSON.parse(v);
+        } catch {
+          throw new Error(label + " JSON is not valid JSON.");
+        }
+      }
+
+      $("sofaConvert").addEventListener("click", () => {
+        const status = $("sofaStatus");
+        try {
+          const lineups = parseSofaField("sofaLineups", "lineups", true);
+          const incidents = parseSofaField("sofaIncidents", "incidents", false);
+          const statistics = parseSofaField("sofaStats", "statistics", false);
+          const best = parseSofaField("sofaBest", "best-players", false);
+          const matchId = matchIdHidden.value.trim();
+          let homeName = "";
+          let awayName = "";
+          if (matchId) {
+            const m = allMatches.find((x) => String(x.id) === String(matchId));
+            if (m) {
+              homeName = m.team_a;
+              awayName = m.team_b;
+            }
+          }
+          const out = convertSofascore({
+            lineups,
+            incidents,
+            statistics,
+            best,
+            matchId,
+            homeName,
+            awayName,
+            homeColor: homeName ? teamColors[homeName] : "",
+            awayColor: awayName ? teamColors[awayName] : "",
+          });
+          jsonArea.value = JSON.stringify(out, null, 2);
+          fileInput.value = "";
+          fileName.textContent = "";
+          result.className = "result";
+          const all = [
+            ...out.home.starters,
+            ...out.home.bench,
+            ...out.away.starters,
+            ...out.away.bench,
+          ];
+          const rated = all.filter((p) => p.rating != null).length;
+          status.style.color = "var(--green)";
+          status.textContent =
+            "Converted " +
+            all.length +
+            " players (" +
+            rated +
+            " rated)" +
+            (out.motm ? " - MOTM set" : "") +
+            ". Review the JSON on the right, then Upload.";
+        } catch (err) {
+          status.style.color = "var(--red)";
+          status.textContent = "Error: " + err.message;
+        }
+      });
+
+      $("sofaClear").addEventListener("click", () => {
+        ["sofaLineups", "sofaIncidents", "sofaStats", "sofaBest"].forEach(
+          (id) => ($(id).value = ""),
+        );
+        $("sofaStatus").textContent = "";
+      });
+
+      drop.addEventListener("click", () => fileInput.click());
+      ["dragover", "dragenter"].forEach((ev) =>
+        drop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          drop.classList.add("drag");
+        }),
+      );
+      ["dragleave", "drop"].forEach((ev) =>
+        drop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          drop.classList.remove("drag");
+        }),
+      );
+      drop.addEventListener("drop", (e) => {
+        const f = e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) loadFile(f);
+      });
+      fileInput.addEventListener("change", () => {
+        if (fileInput.files[0]) loadFile(fileInput.files[0]);
+      });
+
+      function loadFile(f) {
+        if (!/\.json$/i.test(f.name) && f.type !== "application/json") {
+          showResult("err", "Please choose a .json file.");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          jsonArea.value = reader.result;
+          fileName.textContent = "📄 " + f.name;
+          showResult("", "");
+          result.className = "result";
+        };
+        reader.onerror = () => showResult("err", "Could not read that file.");
+        reader.readAsText(f);
+      }
+
+      $("clear").addEventListener("click", () => {
+        jsonArea.value = "";
+        fileInput.value = "";
+        fileName.textContent = "";
+        matchIdHidden.value = "";
+        matchSearch.value = "";
+        matchList.hidden = true;
+        result.className = "result";
+      });
+
+      $("upload").addEventListener("click", async () => {
+        const text = jsonArea.value.trim();
+        if (!unlocked) {
+          showResult("err", "Unlock with the admin password first.");
+          return;
+        }
+        if (!text) {
+          showResult("err", "Provide lineup JSON (file or pasted).");
+          return;
+        }
+        // Validate JSON client-side for a faster error.
+        let parsedJson;
+        try {
+          parsedJson = JSON.parse(text);
+        } catch {
+          showResult(
+            "err",
+            "That isn't valid JSON. Check commas and brackets.",
+          );
+          return;
+        }
+        // If a single match object has no matchId, the UI field must supply it.
+        const matchIdField = $("matchId").value.trim();
+        const isSingle =
+          parsedJson &&
+          !Array.isArray(parsedJson) &&
+          !Array.isArray(parsedJson.lineups);
+        const singleHasId =
+          isSingle &&
+          (parsedJson.matchId != null || parsedJson.match_id != null);
+        if (isSingle && !singleHasId && !matchIdField) {
+          showResult(
+            "err",
+            "This JSON has no matchId — enter a Match ID above.",
+          );
+          return;
+        }
+        const url = matchIdField
+          ? "/api/admin/lineup?matchId=" + encodeURIComponent(matchIdField)
+          : "/api/admin/lineup";
+        const btn = $("upload");
+        btn.disabled = true;
+        btn.textContent = "Uploading…";
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: text,
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.ok) {
+            const lines = data.saved
+              .map((s) => "• id " + s.matchId + " — " + s.label)
+              .join("\n");
+            showResult(
+              "ok",
+              "✅ Saved " +
+                data.count +
+                " match" +
+                (data.count === 1 ? "" : "es") +
+                ":\n" +
+                lines,
+            );
+          } else if (res.status === 401) {
+            setLocked();
+            showResult("err", "❌ Session expired — unlock again to upload.");
+          } else if (data.details) {
+            showResult(
+              "err",
+              "❌ Validation failed:\n" +
+                data.details.map((d) => "• " + d).join("\n"),
+            );
+          } else {
+            showResult("err", "❌ " + (data.error || "Upload failed."));
+          }
+        } catch (err) {
+          showResult("err", "❌ Network error: " + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Upload lineup";
+        }
+      });
+
+      // Delete the stored lineup for the selected match (confirmation gated).
+      $("deleteLineup").addEventListener("click", async () => {
+        if (!unlocked) {
+          showResult("err", "Unlock with the admin password first.");
+          return;
+        }
+        const matchIdField = $("matchId").value.trim();
+        if (!matchIdField) {
+          showResult(
+            "err",
+            "Pick a match above first, then delete its lineup.",
+          );
+          return;
+        }
+        const label = matchSearch.value || "id " + matchIdField;
+        const ok = window.confirm(
+          "Delete the stored lineup for " +
+            label +
+            "?\n\nThis permanently removes the Player-Analysis data for this match. This cannot be undone.",
+        );
+        if (!ok) return;
+        const btn = $("deleteLineup");
+        btn.disabled = true;
+        btn.textContent = "Deleting…";
+        try {
+          const res = await fetch(
+            "/api/admin/lineup/delete?matchId=" +
+              encodeURIComponent(matchIdField),
+            { method: "POST", credentials: "same-origin" },
+          );
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.ok) {
+            showResult(
+              "ok",
+              "🗑️ Deleted lineup for match id " + data.matchId + ".",
+            );
+            loadMatches();
+          } else if (res.status === 401) {
+            setLocked();
+            showResult("err", "❌ Session expired — unlock again to delete.");
+          } else {
+            showResult("err", "❌ " + (data.error || "Delete failed."));
+          }
+        } catch (err) {
+          showResult("err", "❌ Network error: " + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Delete lineup";
+        }
+      });
+
+      // Load the example JSON into the collapsible panel.
+      fetch("/lineup-example.json")
+        .then((r) => r.text())
+        .then((t) => {
+          $("example").textContent = t;
+        })
+        .catch(() => {
+          $("example").textContent = "Could not load example.";
+        });
+
+      // Copy buttons for the example panels.
+      document.querySelectorAll(".copy-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const text = $(btn.dataset.copy).textContent.trim();
+          const original = btn.textContent;
+          try {
+            await navigator.clipboard.writeText(text);
+            btn.textContent = "✓ Copied";
+          } catch {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              document.execCommand("copy");
+              btn.textContent = "✓ Copied";
+            } catch {
+              btn.textContent = "Copy failed";
+            }
+            document.body.removeChild(ta);
+          }
+          setTimeout(() => {
+            btn.textContent = original;
+          }, 1500);
+        });
+      });
+    </script>
+  </body>
+</html>

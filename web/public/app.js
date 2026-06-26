@@ -863,6 +863,35 @@ function ratingClass(r) {
   return "rt-great";
 }
 
+/**
+ * Pick a readable text colour (dark or light) for a given background so the
+ * player number stays visible on any jersey colour. Returns null for values
+ * we can't parse (e.g. CSS vars), leaving the stylesheet default in place.
+ */
+function textOn(bg) {
+  if (typeof bg !== "string") return null;
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(bg.trim());
+  if (!m) return null;
+  let h = m[1];
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const toLin = (c) => {
+    const x = parseInt(c, 16) / 255;
+    return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+  };
+  const L =
+    0.2126 * toLin(h.slice(0, 2)) +
+    0.7152 * toLin(h.slice(2, 4)) +
+    0.0722 * toLin(h.slice(4, 6));
+  return L > 0.55 ? "#0e1116" : "#ffffff";
+}
+
+/** Inline style attribute for a coloured disc, with auto-contrasted text. */
+function discStyle(color) {
+  if (!color) return "";
+  const t = textOn(color);
+  return ` style="background:${esc(color)}${t ? `;color:${t}` : ""}"`;
+}
+
 /** Parse a formation string ("4-3-3") into outfield row counts. */
 function parseFormation(f) {
   const rows = String(f || "")
@@ -957,7 +986,7 @@ function playerMarker(node, color, pid, isMotm) {
       : "";
   const avatar = p.photo
     ? `<img class="pl-photo" src="${esc(p.photo)}" alt="" loading="lazy">`
-    : `<span class="pl-disc"${color ? ` style="background:${esc(color)}"` : ""}>${initials}</span>`;
+    : `<span class="pl-disc"${discStyle(color)}>${initials}</span>`;
   const rating =
     p.rating != null && !isNaN(p.rating)
       ? `<span class="pl-rating ${ratingClass(p.rating)}">${Number(p.rating).toFixed(1)}</span>`
@@ -1077,7 +1106,7 @@ function motmBanner(motm) {
   const initial = esc(
     p.number != null ? String(p.number) : (p.name || "?").charAt(0),
   );
-  const disc = `<span class="motm-disc"${color ? ` style="background:${esc(color)}"` : ""}>${initial}</span>`;
+  const disc = `<span class="motm-disc"${discStyle(color)}>${initial}</span>`;
   return `
     <div class="motm-banner">
       <span class="motm-star">⭐</span>
@@ -1093,6 +1122,14 @@ function motmBanner(motm) {
 function renderLineup(host, data, m) {
   const away = data.away || null; // top half
   const home = data.home || null; // bottom half
+  // Always take the team names from the match itself rather than the lineup
+  // JSON, which may store blank or stale names. The JSON name is only used as
+  // a fallback when the match has none. Mutating the shared team objects means
+  // the team strips, bench, MOTM banner and player modal all pick up the names.
+  if (m) {
+    if (home) home.name = m.teamA || m.team_a || home.name || "";
+    if (away) away.name = m.teamB || m.team_b || away.name || "";
+  }
 
   // Index every player (starters + bench, both teams) so a click can open the
   // detail modal. `entries[pid]` = { p, team, side }.
@@ -1314,7 +1351,7 @@ function openPlayerModal(entry, data, m) {
   );
   const avatar = p.photo
     ? `<img class="ps-photo" src="${esc(p.photo)}" alt="">`
-    : `<span class="ps-disc"${team && team.color ? ` style="background:${esc(team.color)}"` : ""}>${initials}</span>`;
+    : `<span class="ps-disc"${discStyle(team && team.color)}>${initials}</span>`;
 
   body.innerHTML = `
     <div class="ps-head">
@@ -2685,17 +2722,23 @@ function teamGoals(team) {
 }
 
 /** Roll up player profiles across a map of {matchId: lineupData}. */
-function aggregatePlayers(lineups) {
+function aggregatePlayers(lineups, matchTeams) {
+  const teamsFor = matchTeams || {};
   const agg = new Map(); // key `${team}::${name}` → profile
   for (const [matchId, data] of Object.entries(lineups)) {
     if (!data) continue;
+    // Identify teams from the match when the lineup JSON omits the names.
+    const mt = teamsFor[matchId] || {};
+    const nameFor = (side) => mt[side] || (data[side] && data[side].name) || "";
     const motm = resolveMotm(data);
     for (const side of ["home", "away"]) {
       const team = data[side];
       if (!team) continue;
-      const oppTeam = side === "home" ? data.away : data.home;
-      const opponent = (oppTeam && oppTeam.name) || "—";
+      const oppSide = side === "home" ? "away" : "home";
+      const oppTeam = data[oppSide];
+      const opponent = nameFor(oppSide) || "—";
       const conceded = teamGoals(oppTeam);
+      const teamName = nameFor(side);
       const starters = team.starters || [];
       const all = [...starters, ...(team.bench || [])];
       for (const p of all) {
@@ -2707,13 +2750,13 @@ function aggregatePlayers(lineups) {
         // Skip unused players (e.g. a backup keeper who never came on).
         if (!isStarter && minutes <= 0 && rating == null) continue;
 
-        const key = `${team.name}::${p.name}`;
+        const key = `${teamName}::${p.name}`;
         let rec = agg.get(key);
         if (!rec) {
           rec = {
             name: p.name || "?",
             number: p.number != null ? p.number : null,
-            team: team.name || "",
+            team: teamName,
             color: team.color || null,
             pos: p.pos || null,
             apps: 0,
@@ -2848,7 +2891,14 @@ async function renderPlayerStandings(t) {
   }
   if (empty) empty.classList.remove("show");
 
-  const players = aggregatePlayers(lineups);
+  // Map each match id to its DB team names so players still group correctly
+  // when a lineup's JSON has blank team names.
+  const matchTeams = {};
+  (t.matchList || []).forEach((m) => {
+    matchTeams[m.id] = { home: m.teamA || "", away: m.teamB || "" };
+  });
+
+  const players = aggregatePlayers(lineups, matchTeams);
   if (!players.length) {
     return showEmpty("No player appearances recorded yet.");
   }
@@ -2882,7 +2932,7 @@ async function renderPlayerStandings(t) {
   const byScore = players.slice().sort((a, b) => b.score - a.score);
   const top = byScore[0];
   if (pott && top) {
-    const disc = `<span class="ps-disc"${top.color ? ` style="background:${esc(top.color)}"` : ""}>${esc(top.number != null ? String(top.number) : (top.name || "?").charAt(0))}</span>`;
+    const disc = `<span class="ps-disc"${discStyle(top.color)}>${esc(top.number != null ? String(top.number) : (top.name || "?").charAt(0))}</span>`;
     const bits = [];
     if (top.goals) bits.push(`${top.goals} ⚽`);
     if (top.assists) bits.push(`${top.assists} 🅰️`);

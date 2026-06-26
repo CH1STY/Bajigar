@@ -22,6 +22,14 @@ module.exports = {
   // name (e.g. "World Cup 2026", case-insensitive). Empty = first tournament.
   WEB_DEFAULT_TOURNAMENT: process.env.WEB_DEFAULT_TOURNAMENT || null,
 
+  // Admin lineup upload page (/admin/lineup). Lets an admin upload Player-
+  // Analysis JSON from the browser instead of a Discord command. Disabled by
+  // default — set LINEUP_UPLOAD_ENABLED=true in .env to switch it on, and set
+  // a strong LINEUP_ADMIN_PASSWORD that must be entered to upload. When
+  // disabled the page and its API return 404 as if they don't exist.
+  LINEUP_UPLOAD_ENABLED: process.env.LINEUP_UPLOAD_ENABLED === "true",
+  LINEUP_ADMIN_PASSWORD: process.env.LINEUP_ADMIN_PASSWORD || "",
+
   // How long before a match deadline to send the "closing soon" alert.
   REMINDER_LEAD_MS: 30 * 60 * 1000, // 30 minutes
 
