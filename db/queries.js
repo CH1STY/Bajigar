@@ -416,6 +416,121 @@ function setMatchKnockout(matchId, isKnockout) {
   setMatchKnockoutStmt.run(flag, flag, matchId);
 }
 
+// ---- Match deletion & reset -----------------------------------------------
+// Deleting or resetting a match must also reverse any points it awarded so the
+// global leaderboard stays correct. Predictions and lineups cascade-delete via
+// their foreign keys (PRAGMA foreign_keys = ON), but points live on the users
+// row and are reversed here explicitly.
+const matchEarnersStmt = db.prepare(
+  "SELECT discord_id, points_earned FROM predictions WHERE match_id = ? AND points_earned <> 0",
+);
+const adjustGlobalPointsStmt = db.prepare(
+  "UPDATE users SET global_points = global_points + ? WHERE discord_id = ?",
+);
+const countMatchPredictionsStmt = db.prepare(
+  "SELECT COUNT(*) AS n FROM predictions WHERE match_id = ?",
+);
+const deleteMatchStmt = db.prepare("DELETE FROM matches WHERE id = ?");
+const zeroMatchPredictionPointsStmt = db.prepare(
+  "UPDATE predictions SET points_earned = 0 WHERE match_id = ?",
+);
+const resetMatchStmt = db.prepare(`
+  UPDATE matches
+  SET status = 'open', result = NULL, tiebreaker_result = NULL,
+      start_time = ?, end_time = ?, reminded = 0, start_announced = 0
+  WHERE id = ?
+`);
+
+/**
+ * Permanently delete a match and everything tied to it (predictions and any
+ * stored lineup cascade away via FK). Any points the match awarded are first
+ * reversed from each predictor's global total. Runs in one transaction.
+ * @param {number} matchId
+ * @returns {{ predictionsRemoved:number, pointsReversed:number }}
+ */
+function deleteMatch(matchId) {
+  return transaction(() => {
+    let pointsReversed = 0;
+    for (const e of matchEarnersStmt.all(matchId)) {
+      adjustGlobalPointsStmt.run(-e.points_earned, e.discord_id);
+      pointsReversed += e.points_earned;
+    }
+    const predictionsRemoved = countMatchPredictionsStmt.get(matchId).n;
+    deleteMatchStmt.run(matchId);
+    return { predictionsRemoved, pointsReversed };
+  });
+}
+
+/**
+ * Reset a (typically resolved) match back to open for predictions: clears the
+ * result and tie-breaker, reverses every awarded point and zeroes each
+ * prediction's score, re-arms the open/closing notifications, and applies the
+ * new prediction window. Existing predictions are kept (they can be re-scored
+ * later); only their points are cleared. Runs in one transaction.
+ * @param {number} matchId
+ * @param {number|null} newStartTime - epoch ms predictions open, or null for now
+ * @param {number} newEndTime - epoch ms deadline
+ * @returns {{ predictionsCleared:number, pointsReversed:number }}
+ */
+function resetMatch(matchId, newStartTime, newEndTime) {
+  return transaction(() => {
+    let pointsReversed = 0;
+    for (const e of matchEarnersStmt.all(matchId)) {
+      adjustGlobalPointsStmt.run(-e.points_earned, e.discord_id);
+      pointsReversed += e.points_earned;
+    }
+    const predictionsCleared = countMatchPredictionsStmt.get(matchId).n;
+    zeroMatchPredictionPointsStmt.run(matchId);
+    resetMatchStmt.run(newStartTime, newEndTime, matchId);
+    return { predictionsCleared, pointsReversed };
+  });
+}
+
+// ---- Per-match team rename -------------------------------------------------
+// Unlike renameTeamInTournament (which renames a team everywhere in a number
+// group), this corrects a team name on a single match only. For cricket it also
+// fixes the stored winner and any predicted-winner that named the old team so
+// scoring stays consistent; football predictions hold scores, not names.
+const renameMatchTeamAStmt = db.prepare(
+  "UPDATE matches SET team_a = ? WHERE id = ? AND team_a = ? COLLATE NOCASE",
+);
+const renameMatchTeamBStmt = db.prepare(
+  "UPDATE matches SET team_b = ? WHERE id = ? AND team_b = ? COLLATE NOCASE",
+);
+const renameMatchCricketResultStmt = db.prepare(
+  "UPDATE matches SET result = ? WHERE id = ? AND type = 'cricket' AND result = ? COLLATE NOCASE",
+);
+const renameMatchCricketPredictionStmt = db.prepare(`
+  UPDATE predictions SET predicted_value = ?
+  WHERE predicted_value = ? COLLATE NOCASE
+    AND match_id = ?
+    AND match_id IN (SELECT id FROM matches WHERE type = 'cricket')
+`);
+
+/**
+ * Rename a team on a single match (team_a or team_b, whichever matches), plus
+ * the cricket result/predicted winner where applicable. Runs in one transaction.
+ * @param {number} matchId
+ * @param {string} fromName - the current team name to replace (case-insensitive)
+ * @param {string} toName - the new team name
+ * @returns {{ side: 'team_a'|'team_b'|null, results:number, predictions:number }}
+ */
+function renameTeamInMatch(matchId, fromName, toName) {
+  const from = fromName.trim();
+  const to = toName.trim();
+  return transaction(() => {
+    const a = renameMatchTeamAStmt.run(to, matchId, from).changes;
+    const b = renameMatchTeamBStmt.run(to, matchId, from).changes;
+    const results = renameMatchCricketResultStmt.run(to, matchId, from).changes;
+    const predictions = renameMatchCricketPredictionStmt.run(
+      to,
+      from,
+      matchId,
+    ).changes;
+    return { side: a ? "team_a" : b ? "team_b" : null, results, predictions };
+  });
+}
+
 // ---- Player Analysis (lineups) -------------------------------------------
 const upsertLineupStmt = db.prepare(`
   INSERT INTO match_lineups (match_id, data, updated_at)
@@ -533,6 +648,9 @@ module.exports = {
   getUserPredictions,
   updateMatchTimes,
   setMatchKnockout,
+  deleteMatch,
+  resetMatch,
+  renameTeamInMatch,
   upsertLineup,
   getLineup,
   deleteLineup,

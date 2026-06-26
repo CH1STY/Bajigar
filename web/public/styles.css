@@ -614,6 +614,95 @@ table.standings-table {
   background: rgba(155, 89, 182, 0.06);
 }
 
+/* ---- Player Standings: search + pagination controls ---- */
+.ps-table-wrap {
+  width: 100%;
+}
+
+.ps-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.ps-search {
+  flex: 1;
+  min-width: 180px;
+  max-width: 320px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 14px;
+}
+
+.ps-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ps-pagesize {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ps-pagesize select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ps-count {
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.ps-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.ps-page-btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ps-page-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.ps-page-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ps-page-info {
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 90px;
+  text-align: center;
+}
+
 /* ---- Match explorer ---- */
 .match-explorer-controls {
   margin-bottom: 14px;
