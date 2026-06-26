@@ -82,6 +82,15 @@
             <span class="subtab-icon">🏆</span>
             <span class="subtab-text">Team Standings</span>
           </button>
+          <button
+            class="subtab"
+            data-subtab="players"
+            role="tab"
+            aria-selected="false"
+          >
+            <span class="subtab-icon">👤</span>
+            <span class="subtab-text">Player Standings</span>
+          </button>
         </nav>
         <div id="tn-sub-predictions" class="subtab-panel active">
           <section class="card-grid">
@@ -151,6 +160,70 @@
             <div class="table-wrap" id="tn-team-table"></div>
           </section>
         </div>
+        <div id="tn-sub-players" class="subtab-panel">
+          <section id="tn-player-kpis" class="kpi-grid"></section>
+          <div class="banner" id="tn-player-empty"></div>
+          <section class="card-grid">
+            <div class="card">
+              <h2>
+                👑 Player of the Tournament
+                <span class="hint">best overall performer</span>
+              </h2>
+              <div id="tn-player-pott" class="spotlight"></div>
+            </div>
+            <div class="card">
+              <h2>
+                ⭐ Best Individual Performance
+                <span class="hint">highest single-match rating</span>
+              </h2>
+              <div id="tn-player-best" class="spotlight"></div>
+            </div>
+          </section>
+          <section class="card-grid card-grid-3">
+            <div class="card">
+              <h2>Top Scorers <span class="hint">goals</span></h2>
+              <canvas id="tn-player-goals"></canvas>
+            </div>
+            <div class="card">
+              <h2>Top Assisters <span class="hint">assists</span></h2>
+              <canvas id="tn-player-assists"></canvas>
+            </div>
+            <div class="card">
+              <h2>
+                Highest Rated <span class="hint">average match rating</span>
+              </h2>
+              <canvas id="tn-player-rating"></canvas>
+            </div>
+          </section>
+          <section class="card-grid card-grid-3">
+            <div class="card">
+              <h2>
+                Goal Contributions <span class="hint">goals + assists</span>
+              </h2>
+              <canvas id="tn-player-ga"></canvas>
+            </div>
+            <div class="card">
+              <h2>Most Minutes <span class="hint">time on pitch</span></h2>
+              <canvas id="tn-player-minutes"></canvas>
+            </div>
+            <div class="card">
+              <h2>
+                Most ⭐ Awards <span class="hint">player of the match</span>
+              </h2>
+              <canvas id="tn-player-motm"></canvas>
+            </div>
+          </section>
+          <section class="card">
+            <h2>
+              Player Standings
+              <span class="hint"
+                >aggregated from match player analysis · click a header to
+                sort</span
+              >
+            </h2>
+            <div class="table-wrap" id="tn-player-table"></div>
+          </section>
+        </div>
       </section>
     </main>
 
@@ -194,6 +267,25 @@
           ×
         </button>
         <div class="modal-body" id="scoring-modal-body"></div>
+      </div>
+    </div>
+
+    <div id="player-modal" class="modal-overlay modal-overlay--top" hidden>
+      <div
+        class="modal modal--narrow"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Player details"
+      >
+        <button
+          class="modal-close"
+          id="player-modal-close"
+          aria-label="Close"
+          title="Close"
+        >
+          ×
+        </button>
+        <div class="modal-body" id="player-modal-body"></div>
       </div>
     </div>
 

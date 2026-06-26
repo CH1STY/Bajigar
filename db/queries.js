@@ -416,6 +416,79 @@ function setMatchKnockout(matchId, isKnockout) {
   setMatchKnockoutStmt.run(flag, flag, matchId);
 }
 
+// ---- Player Analysis (lineups) -------------------------------------------
+const upsertLineupStmt = db.prepare(`
+  INSERT INTO match_lineups (match_id, data, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(match_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
+`);
+const getLineupStmt = db.prepare(
+  "SELECT data FROM match_lineups WHERE match_id = ?",
+);
+const deleteLineupStmt = db.prepare(
+  "DELETE FROM match_lineups WHERE match_id = ?",
+);
+
+/**
+ * Insert or replace the Player-Analysis JSON for a match.
+ * @param {number} matchId
+ * @param {object} data - lineup/stats object (serialised to JSON)
+ */
+function upsertLineup(matchId, data) {
+  upsertLineupStmt.run(matchId, JSON.stringify(data), Date.now());
+}
+
+/**
+ * Fetch the parsed Player-Analysis object for a match, or null when none.
+ * @param {number} matchId
+ * @returns {object | null}
+ */
+function getLineup(matchId) {
+  const row = getLineupStmt.get(matchId);
+  if (!row) return null;
+  try {
+    return JSON.parse(row.data);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remove the Player-Analysis data for a match.
+ * @param {number} matchId
+ * @returns {boolean} true when a row was deleted
+ */
+function deleteLineup(matchId) {
+  return deleteLineupStmt.run(matchId).changes > 0;
+}
+
+/**
+ * Fetch parsed Player-Analysis objects for several matches at once.
+ * @param {number[]} ids - match ids
+ * @returns {Object<string, object>} map of matchId → parsed lineup data
+ */
+function getLineupsForMatches(ids) {
+  const list = (ids || [])
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0);
+  if (!list.length) return {};
+  const placeholders = list.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT match_id, data FROM match_lineups WHERE match_id IN (${placeholders})`,
+    )
+    .all(...list);
+  const out = {};
+  for (const r of rows) {
+    try {
+      out[r.match_id] = JSON.parse(r.data);
+    } catch {
+      /* skip malformed rows */
+    }
+  }
+  return out;
+}
+
 module.exports = {
   db,
   ensureUser,
@@ -444,4 +517,8 @@ module.exports = {
   getUserPredictions,
   updateMatchTimes,
   setMatchKnockout,
+  upsertLineup,
+  getLineup,
+  deleteLineup,
+  getLineupsForMatches,
 };

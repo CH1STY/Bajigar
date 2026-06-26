@@ -10,6 +10,7 @@ const fs = require("fs");
 const path = require("path");
 const { buildAnalytics, getDistinctUserIds } = require("./analytics");
 const { resolveMany } = require("./usernames");
+const { getLineup, getLineupsForMatches } = require("../db/queries");
 
 const PORT = Number(process.env.WEB_PORT) || 2026;
 const publicDir = path.join(__dirname, "public");
@@ -87,6 +88,39 @@ const server = http.createServer((req, res) => {
   const pathname = (req.url || "/").split("?")[0];
   if (req.method === "GET" && pathname === "/api/stats") {
     handleStats(res);
+    return;
+  }
+  if (req.method === "GET" && pathname === "/api/lineup") {
+    const id = Number(new URL(req.url, "http://x").searchParams.get("matchId"));
+    if (!Number.isInteger(id) || id <= 0) {
+      sendJson(res, 400, { error: "Invalid matchId" });
+      return;
+    }
+    try {
+      const data = getLineup(id);
+      if (!data) {
+        sendJson(res, 404, { error: "No lineup for this match" });
+        return;
+      }
+      sendJson(res, 200, data);
+    } catch (err) {
+      console.error("Lineup error:", err);
+      sendJson(res, 500, { error: "Failed to load lineup." });
+    }
+    return;
+  }
+  if (req.method === "GET" && pathname === "/api/lineups") {
+    const raw = new URL(req.url, "http://x").searchParams.get("matchIds") || "";
+    const ids = raw
+      .split(",")
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    try {
+      sendJson(res, 200, getLineupsForMatches(ids));
+    } catch (err) {
+      console.error("Lineups error:", err);
+      sendJson(res, 500, { error: "Failed to load lineups." });
+    }
     return;
   }
   if (req.method === "GET") {

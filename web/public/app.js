@@ -658,6 +658,50 @@ function renderMatchDetail(container, m, chartId) {
     }`;
   container.append(head);
 
+  // Two tabs: Prediction Analysis (always) and Player Analysis (only shown
+  // when a lineup exists for this match). The tab bar stays hidden until the
+  // Player Analysis data loads, so non-lineup matches look unchanged.
+  const tabs = el("div", { className: "md-tabs", hidden: true });
+  const tabPred = el("button", {
+    className: "md-tab active",
+    type: "button",
+    textContent: "Prediction Analysis",
+  });
+  const tabPlay = el("button", {
+    className: "md-tab",
+    type: "button",
+    textContent: "Player Analysis",
+  });
+  tabs.append(tabPred, tabPlay);
+  const predPane = el("div", { className: "md-pane" });
+  const playPane = el("div", { className: "md-pane", hidden: true });
+  container.append(tabs, predPane, playPane);
+
+  const activate = (which) => {
+    const pred = which === "pred";
+    tabPred.classList.toggle("active", pred);
+    tabPlay.classList.toggle("active", !pred);
+    predPane.hidden = !pred;
+    playPane.hidden = pred;
+  };
+  tabPred.addEventListener("click", () => activate("pred"));
+  tabPlay.addEventListener("click", () => activate("play"));
+
+  renderPredictionPane(predPane, m, chartId);
+
+  // Player Analysis — resolved football matches only. Loaded on demand from
+  // /api/lineup?matchId=…; a missing record just leaves the tab hidden.
+  if (m.type === "football" && m.status === "resolved") {
+    loadLineup(m, playPane, () => {
+      tabs.hidden = false;
+      // If there are no predictions to read, open straight to Player Analysis.
+      if (!m.predictionCount) activate("play");
+    });
+  }
+}
+
+/** Render the prediction analytics (chart + per-prediction table) into a pane. */
+function renderPredictionPane(container, m, chartId) {
   if (!m.revealed) {
     container.append(
       el("div", {
@@ -783,7 +827,522 @@ function renderMatchDetail(container, m, chartId) {
   );
 }
 
+/* ============================ Player Analysis ============================ *
+ * SofaScore-style lineup pitch for resolved football matches. Data is stored
+ * in the match_lineups DB table and served at /api/lineup?matchId=N. Authoring
+ * lives in data/lineups/*.json → run `node scripts/import-lineups.js`.
+ * A missing record simply hides the Player Analysis tab.
+ * ----------------------------------------------------------------------- */
+
 /**
+ * Fetch and render the lineup panel. Calls onLoaded() only when data exists so
+ * the caller can reveal the Player Analysis tab; otherwise it is a silent no-op.
+ */
+async function loadLineup(m, host, onLoaded) {
+  try {
+    const res = await fetch(`api/lineup?matchId=${encodeURIComponent(m.id)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || (!data.home && !data.away)) return;
+    renderLineup(host, data, m);
+    if (typeof onLoaded === "function") onLoaded();
+  } catch {
+    /* network/parse error → leave the panel hidden */
+  }
+}
+
+/** Theme colour class for a player rating badge. */
+function ratingClass(r) {
+  if (r == null || isNaN(r)) return "rt-none";
+  if (r < 5) return "rt-vlow";
+  if (r < 6) return "rt-low";
+  if (r < 7) return "rt-mid";
+  if (r < 8) return "rt-good";
+  return "rt-great";
+}
+
+/** Parse a formation string ("4-3-3") into outfield row counts. */
+function parseFormation(f) {
+  const rows = String(f || "")
+    .split("-")
+    .map((n) => parseInt(n, 10))
+    .filter((n) => n > 0);
+  return rows.length ? rows : null;
+}
+
+/**
+ * Compute {x,y} (percent) for each starter of one team. Order is GK first,
+ * then defence, midfield, attack (left→right within each row). `side` is
+ * "top" (attacks downward) or "bottom" (attacks upward). Explicit per-player
+ * x/y override the auto-layout.
+ */
+function lineupPositions(team, side) {
+  const starters = team.starters || [];
+  const rows = parseFormation(team.formation) || [starters.length - 1];
+  const top = side === "top";
+  // Bands (percent of full pitch height) for GK and the outfield rows. Wide
+  // bands keep adjacent rows from overlapping even for deep formations.
+  const gkY = top ? 4 : 96;
+  const bandStart = top ? 14 : 86; // nearest own goal
+  const bandEnd = top ? 43 : 57; // nearest halfway line (gap keeps opposing forwards apart)
+  const rowY = (r) =>
+    rows.length === 1
+      ? (bandStart + bandEnd) / 2
+      : bandStart + ((bandEnd - bandStart) * r) / (rows.length - 1);
+
+  const out = [];
+  let idx = 0;
+  // GK
+  if (starters[idx]) {
+    const p = starters[idx];
+    out.push({ p, x: p.x ?? 50, y: p.y ?? gkY });
+    idx++;
+  }
+  rows.forEach((count, r) => {
+    for (let i = 0; i < count && starters[idx]; i++, idx++) {
+      const p = starters[idx];
+      const autoX = ((i + 1) / (count + 1)) * 100;
+      out.push({ p, x: p.x ?? autoX, y: p.y ?? rowY(r) });
+    }
+  });
+  // Any leftover starters (formation/count mismatch) drop near halfway.
+  while (starters[idx]) {
+    const p = starters[idx];
+    out.push({ p, x: p.x ?? 50, y: p.y ?? (top ? 43 : 57) });
+    idx++;
+  }
+  return out;
+}
+
+/** Normalise a minute value (number, array, or "23,67") into a list of strings. */
+function minutesList(v) {
+  if (v == null) return [];
+  const arr = Array.isArray(v) ? v : String(v).split(",");
+  return arr.map((x) => String(x).trim()).filter((x) => x !== "");
+}
+
+/** Small event-icon cluster for a player (goals, assists, cards) with minutes. */
+function playerEventIcons(p) {
+  const goalsAt = minutesList(p.goalsAt);
+  const assistsAt = minutesList(p.assistsAt);
+  const yellowAt = minutesList(p.yellowAt);
+  const redAt = minutesList(p.redAt);
+  const bits = [];
+  const add = (emoji, label, count, mins) => {
+    const n = count != null ? Number(count) : mins.length;
+    for (let i = 0; i < n; i++) {
+      const m = mins[i];
+      const title = m != null ? `${label} ${m}'` : label;
+      bits.push(
+        `<span class="ev" title="${esc(title)}">${emoji}${m != null ? `<i class="ev-min">${esc(m)}'</i>` : ""}</span>`,
+      );
+    }
+  };
+  add("⚽", "Goal", p.goals, goalsAt);
+  add("🅰️", "Assist", p.assists, assistsAt);
+  add("🟨", "Yellow card", p.yellow, yellowAt);
+  add("🟥", "Red card", p.red, redAt);
+  if (!bits.length) return "";
+  return `<span class="pl-events">${bits.join("")}</span>`;
+}
+
+/** One player marker positioned on the pitch. `pid` enables the detail modal. */
+function playerMarker(node, color, pid, isMotm) {
+  const { p, x, y } = node;
+  const initials =
+    p.photo == null
+      ? esc(p.number != null ? String(p.number) : (p.name || "?").charAt(0))
+      : "";
+  const avatar = p.photo
+    ? `<img class="pl-photo" src="${esc(p.photo)}" alt="" loading="lazy">`
+    : `<span class="pl-disc"${color ? ` style="background:${esc(color)}"` : ""}>${initials}</span>`;
+  const rating =
+    p.rating != null && !isNaN(p.rating)
+      ? `<span class="pl-rating ${ratingClass(p.rating)}">${Number(p.rating).toFixed(1)}</span>`
+      : `<span class="pl-rating rt-none">–</span>`;
+  const cap = p.captain ? `<span class="pl-cap" title="Captain">C</span>` : "";
+  const motmStar = isMotm
+    ? `<span class="pl-motm" title="Player of the Match">⭐</span>`
+    : "";
+  const subOff =
+    p.subbedOffAt != null
+      ? `<span class="pl-suboff" title="Substituted off ${esc(p.subbedOffAt)}'">↓${esc(p.subbedOffAt)}'</span>`
+      : "";
+  return `
+    <button type="button" class="pl-marker${isMotm ? " pl-marker--motm" : ""}" data-pid="${pid}" style="left:${x}%;top:${y}%">
+      <div class="pl-avatar">
+        ${avatar}
+        ${rating}
+        ${cap}
+        ${motmStar}
+        ${playerEventIcons(p)}
+        ${subOff}
+      </div>
+      <div class="pl-name">${p.number != null ? `<span class="pl-num">${esc(p.number)}</span> ` : ""}${esc(p.name || "")}</div>
+    </button>`;
+}
+
+/** Bench list for one team. `idOf(player)` supplies each row's detail-modal id. */
+function benchColumn(team, idOf) {
+  const bench = team.bench || [];
+  if (!bench.length)
+    return `<div class="bench-col"><div class="bench-team">${esc(team.name || "")}</div><div class="empty">No bench data</div></div>`;
+  const rows = bench
+    .map((p) => {
+      const rt =
+        p.rating != null && !isNaN(p.rating)
+          ? `<span class="pl-rating ${ratingClass(p.rating)}">${Number(p.rating).toFixed(1)}</span>`
+          : "";
+      const on =
+        p.subbedOnAt != null
+          ? `<span class="bench-on" title="Came on ${esc(p.subbedOnAt)}'">↑${esc(p.subbedOnAt)}'</span>`
+          : "";
+      return `<button type="button" class="bench-row" data-pid="${idOf(p)}">
+          <span class="bench-name">${p.number != null ? `<span class="pl-num">${esc(p.number)}</span> ` : ""}${esc(p.name || "")}</span>
+          <span class="bench-meta">${on}${playerEventIcons(p)}${rt}</span>
+        </button>`;
+    })
+    .join("");
+  return `<div class="bench-col"><div class="bench-team">${esc(team.name || "")}</div>${rows}</div>`;
+}
+
+/** Team header strip (flag · name · formation) shown above/below the pitch. */
+function teamStrip(team, pos) {
+  if (!team) return "";
+  const flag = team.flag
+    ? `<span class="ts-flag">${esc(team.flag)}</span>`
+    : "";
+  const form = team.formation
+    ? `<span class="ts-form">${esc(team.formation)}</span>`
+    : "";
+  return `<div class="team-strip team-strip--${pos}">${flag}<span class="ts-name">${esc(team.name || "")}</span>${form}</div>`;
+}
+
+/**
+ * Resolve the Man of the Match player from `data.motm`. Accepts a player name
+ * string, or an object { team:"home"|"away", number } / { team, name }. Returns
+ * { p, team, side, color } or null.
+ */
+function resolveMotm(data) {
+  const spec = data && data.motm;
+  if (!spec) return null;
+  const sides = [
+    { team: data.home, side: "home" },
+    { team: data.away, side: "away" },
+  ];
+  const wantTeam = typeof spec === "object" ? spec.team : null;
+  const wantNum =
+    typeof spec === "object" && spec.number != null
+      ? Number(spec.number)
+      : null;
+  const wantName =
+    typeof spec === "string" ? spec : (spec && spec.name) || null;
+  for (const { team, side } of sides) {
+    if (!team) continue;
+    if (wantTeam && wantTeam !== side) continue;
+    const all = [...(team.starters || []), ...(team.bench || [])];
+    const found = all.find((p) => {
+      if (wantNum != null) return Number(p.number) === wantNum;
+      if (wantName)
+        return (p.name || "").toLowerCase() === wantName.toLowerCase();
+      return false;
+    });
+    if (found) return { p: found, team, side, color: team.color || null };
+  }
+  return null;
+}
+
+/** Headline "Player of the Match" banner, if `motm` resolves to a player. */
+function motmBanner(motm) {
+  if (!motm) return "";
+  const { p, team, color } = motm;
+  const num =
+    p.number != null ? `<span class="motm-num">#${esc(p.number)}</span> ` : "";
+  const rating =
+    p.rating != null && !isNaN(p.rating)
+      ? `<span class="motm-rating ${ratingClass(p.rating)}">${Number(p.rating).toFixed(1)}</span>`
+      : "";
+  const goals = minutesList(p.goalsAt);
+  const assists = minutesList(p.assistsAt);
+  const bits = [];
+  if (goals.length) bits.push(`${goals.length} ⚽`);
+  if (assists.length) bits.push(`${assists.length} 🅰️`);
+  if (p.saves != null && Number(p.saves) > 0)
+    bits.push(`${Number(p.saves)} 🧤`);
+  const contrib = bits.length
+    ? `<span class="motm-contrib">${bits.join(" · ")}</span>`
+    : "";
+  const initial = esc(
+    p.number != null ? String(p.number) : (p.name || "?").charAt(0),
+  );
+  const disc = `<span class="motm-disc"${color ? ` style="background:${esc(color)}"` : ""}>${initial}</span>`;
+  return `
+    <div class="motm-banner">
+      <span class="motm-star">⭐</span>
+      <span class="motm-label">Player of the Match</span>
+      ${disc}
+      <span class="motm-name">${num}${esc(p.name || "")}<span class="motm-team">${esc(team.name || "")}</span></span>
+      ${contrib}
+      ${rating}
+    </div>`;
+}
+
+/** Render the full Player Analysis panel into `host`. */
+function renderLineup(host, data, m) {
+  const away = data.away || null; // top half
+  const home = data.home || null; // bottom half
+
+  // Index every player (starters + bench, both teams) so a click can open the
+  // detail modal. `entries[pid]` = { p, team, side }.
+  const entries = [];
+  const idMap = new Map();
+  const register = (team, side) => {
+    if (!team) return;
+    for (const p of team.starters || []) {
+      idMap.set(p, entries.length);
+      entries.push({ p, team, side });
+    }
+    for (const p of team.bench || []) {
+      idMap.set(p, entries.length);
+      entries.push({ p, team, side });
+    }
+  };
+  register(away, "away");
+  register(home, "home");
+  const idOf = (p) => idMap.get(p);
+
+  const motm = resolveMotm(data);
+  const motmP = motm && motm.p;
+
+  const markers = [];
+  if (away)
+    for (const node of lineupPositions(away, "top"))
+      markers.push(
+        playerMarker(node, away.color, idOf(node.p), node.p === motmP),
+      );
+  if (home)
+    for (const node of lineupPositions(home, "bottom"))
+      markers.push(
+        playerMarker(node, home.color, idOf(node.p), node.p === motmP),
+      );
+
+  host.innerHTML = `
+    ${motmBanner(motm)}
+    ${teamStrip(away, "top")}
+    <div class="pitch">
+      <svg class="pitch-lines" viewBox="0 0 100 150" preserveAspectRatio="none" aria-hidden="true">
+        <rect x="2" y="2" width="96" height="146" rx="1"/>
+        <line x1="2" y1="75" x2="98" y2="75"/>
+        <circle cx="50" cy="75" r="11"/>
+        <circle cx="50" cy="75" r="0.8" class="spot"/>
+        <rect x="22" y="2" width="56" height="22"/>
+        <rect x="37" y="2" width="26" height="8"/>
+        <circle cx="50" cy="18" r="0.8" class="spot"/>
+        <path d="M 40 24 A 11 11 0 0 0 60 24"/>
+        <rect x="22" y="126" width="56" height="22"/>
+        <rect x="37" y="140" width="26" height="8"/>
+        <circle cx="50" cy="132" r="0.8" class="spot"/>
+        <path d="M 40 126 A 11 11 0 0 1 60 126"/>
+      </svg>
+      <div class="pitch-players">${markers.join("")}</div>
+    </div>
+    ${teamStrip(home, "bottom")}
+    <div class="lineup-legend">
+      <span><i class="lg rt-great"></i>8+</span>
+      <span><i class="lg rt-good"></i>7–7.9</span>
+      <span><i class="lg rt-mid"></i>6–6.9</span>
+      <span><i class="lg rt-low"></i>5–5.9</span>
+      <span><i class="lg rt-vlow"></i>&lt;5</span>
+      <span>⚽ goal</span>
+      <span>🅰️ assist</span>
+      <span>🟨🟥 card</span>
+      <span>↓ off · ↑ on</span>
+      <span class="lg-cap"><b>C</b> captain</span>
+    </div>
+    <p class="lineup-hint">Tip: tap any player for their match stats.</p>
+    ${teamStatsSection(data, home, away)}
+    <h3 class="md-section">Bench</h3>
+    <div class="bench-grid">
+      ${home ? benchColumn(home, idOf) : ""}
+      ${away ? benchColumn(away, idOf) : ""}
+    </div>`;
+
+  // One delegated handler opens the detail modal for any player (pitch/bench).
+  host.addEventListener("click", (e) => {
+    const node = e.target.closest("[data-pid]");
+    if (!node) return;
+    const entry = entries[Number(node.dataset.pid)];
+    if (entry) openPlayerModal(entry, data, m);
+  });
+}
+
+/** Whether lower is the "better" value for a team-stat metric. */
+const STAT_LOWER_BETTER = new Set(["fouls", "yellow", "red", "offsides"]);
+
+/** The team-stats comparison block (image-3 style), if data is present. */
+function teamStatsSection(data, home, away) {
+  const ts = data.teamStats;
+  if (!ts || (!ts.home && !ts.away)) return "";
+  const H = ts.home || {};
+  const A = ts.away || {};
+  const homeColor = (home && home.color) || "var(--accent)";
+  const awayColor = (away && away.color) || "var(--accent-2)";
+  const metrics = [
+    ["shots", "Shots"],
+    ["shotsOnTarget", "Shots on target"],
+    ["possession", "Possession", "%"],
+    ["passes", "Passes"],
+    ["passAccuracy", "Pass accuracy", "%"],
+    ["fouls", "Fouls"],
+    ["yellow", "Yellow cards"],
+    ["red", "Red cards"],
+    ["offsides", "Offsides"],
+    ["corners", "Corners"],
+  ];
+  const rows = metrics
+    .filter(([k]) => H[k] != null || A[k] != null)
+    .map(([k, label, suffix]) => {
+      const hv = H[k] == null ? null : Number(H[k]);
+      const av = A[k] == null ? null : Number(A[k]);
+      const sfx = suffix || "";
+      let hWin = false;
+      let aWin = false;
+      if (hv != null && av != null && hv !== av) {
+        const homeBetter = STAT_LOWER_BETTER.has(k) ? hv < av : hv > av;
+        hWin = homeBetter;
+        aWin = !homeBetter;
+      }
+      const hPill = hWin
+        ? ` style="background:${esc(homeColor)};color:#fff"`
+        : "";
+      const aPill = aWin
+        ? ` style="background:${esc(awayColor)};color:#fff"`
+        : "";
+      return `<div class="tstat-row">
+          <span class="tstat-val tstat-home"><span class="tstat-pill"${hPill}>${hv != null ? esc(hv) + sfx : "–"}</span></span>
+          <span class="tstat-label">${esc(label)}</span>
+          <span class="tstat-val tstat-away"><span class="tstat-pill"${aPill}>${av != null ? esc(av) + sfx : "–"}</span></span>
+        </div>`;
+    })
+    .join("");
+  if (!rows) return "";
+  return `
+    <h3 class="md-section">Team Stats</h3>
+    <div class="tstat-head">
+      <span>${esc((home && home.name) || "Home")}</span>
+      <span></span>
+      <span>${esc((away && away.name) || "Away")}</span>
+    </div>
+    <div class="tstat-table">${rows}</div>`;
+}
+
+/** Stat rows for the player detail modal — varies for goalkeepers. */
+function playerStatRows(p, isGK) {
+  const rows = [];
+  const num = (v) => (v == null ? 0 : Number(v));
+  if (p.rating != null && !isNaN(p.rating)) {
+    rows.push(
+      `<div class="ps-row ps-rating-row">
+        <span class="ps-label">Player rating<small>Based on match data</small></span>
+        <span class="pl-rating ${ratingClass(p.rating)}">${Number(p.rating).toFixed(1)}</span>
+      </div>`,
+    );
+  }
+  if (p.subbedOffAt != null) {
+    rows.push(
+      statRow(
+        "Substitution time",
+        `<span class="ps-sub off">↓ ${esc(p.subbedOffAt)}'</span>`,
+      ),
+    );
+  } else if (p.subbedOnAt != null) {
+    rows.push(
+      statRow(
+        "Substitution time",
+        `<span class="ps-sub on">↑ ${esc(p.subbedOnAt)}'</span>`,
+      ),
+    );
+  }
+  if (p.minutes != null) rows.push(statRow("Minutes played", esc(p.minutes)));
+  // Count with optional event minutes, e.g. "2 (23', 67')".
+  const withMins = (count, src) => {
+    const mins = minutesList(src);
+    const c = num(count != null ? count : mins.length);
+    return mins.length
+      ? `${c} <span class="ps-mins">(${mins.map((m) => esc(m) + "'").join(", ")})</span>`
+      : String(c);
+  };
+  if (isGK) {
+    rows.push(statRow("Keeper saves", num(p.saves)));
+  } else {
+    rows.push(statRow("Total shots", num(p.shots)));
+    rows.push(statRow("Goals", withMins(p.goals, p.goalsAt)));
+    rows.push(statRow("Assists", withMins(p.assists, p.assistsAt)));
+  }
+  rows.push(statRow("Yellow cards", withMins(p.yellow, p.yellowAt)));
+  rows.push(statRow("Red cards", withMins(p.red, p.redAt)));
+  return rows.join("");
+}
+
+function statRow(label, value) {
+  return `<div class="ps-row"><span class="ps-label">${esc(label)}</span><span class="ps-value">${value}</span></div>`;
+}
+
+/** Open the individual player detail modal (image 1 / image 2). */
+function openPlayerModal(entry, data, m) {
+  const overlay = document.getElementById("player-modal");
+  const body = document.getElementById("player-modal-body");
+  if (!overlay || !body) return;
+  const { p, team } = entry;
+  const isGK = String(p.pos || "").toUpperCase() === "GK";
+
+  const sc = m && m.result ? parseScore(m.result) : null;
+  const scoreLine =
+    sc && m
+      ? `<div class="ps-score">
+          <span>${data.home && data.home.flag ? esc(data.home.flag) + " " : ""}${esc(m.teamA)}</span>
+          <strong>${sc.a} — ${sc.b}</strong>
+          <span>${esc(m.teamB)}${data.away && data.away.flag ? " " + esc(data.away.flag) : ""}</span>
+          <span class="ps-ft">Full-time</span>
+        </div>`
+      : "";
+
+  const initials = esc(
+    p.number != null ? String(p.number) : (p.name || "?").charAt(0),
+  );
+  const avatar = p.photo
+    ? `<img class="ps-photo" src="${esc(p.photo)}" alt="">`
+    : `<span class="ps-disc"${team && team.color ? ` style="background:${esc(team.color)}"` : ""}>${initials}</span>`;
+
+  body.innerHTML = `
+    <div class="ps-head">
+      ${avatar}
+      <div class="ps-id">
+        <div class="ps-name">${esc(p.name || "")}</div>
+        <div class="ps-team">${team && team.flag ? esc(team.flag) + " " : ""}${esc((team && team.name) || "")}${p.number != null ? ` #${esc(p.number)}` : ""}</div>
+      </div>
+    </div>
+    ${scoreLine}
+    <h3 class="md-section">Match stats</h3>
+    <div class="ps-stats">${playerStatRows(p, isGK)}</div>`;
+
+  overlay.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closePlayerModal() {
+  const overlay = document.getElementById("player-modal");
+  if (!overlay || overlay.hidden) return;
+  overlay.hidden = true;
+  // Keep modal-open while the underlying match modal is still showing.
+  const matchOpen = !document.getElementById("match-modal").hidden;
+  if (!matchOpen) document.body.classList.remove("modal-open");
+}
+
+/**
+
  * Build a table whose columns can be sorted client-side. Sorting happens
  * entirely in the browser on the already-loaded `rows` (no server call). The
  * initial order is preserved until a header is clicked.
@@ -981,6 +1540,7 @@ function setupTournamentPicker(tournaments, defaultId) {
     renderBlock("tn", t);
     renderStandings(standings, t);
     renderTeamAnalytics(t);
+    renderPlayerStandings(t);
   };
 
   select.onchange = draw;
@@ -2104,6 +2664,408 @@ function renderTeamHighlights(games) {
   }
 }
 
+/* ---- Player Standings (aggregated from per-match player analysis) ---------
+ * Pulls every lineup for the tournament's matches and rolls each player's
+ * goals, assists, cards, minutes, ratings and Player-of-the-Match awards into
+ * a single season-long profile. */
+
+/** Count an event from either an explicit count or a minute list. */
+function countEvent(count, mins) {
+  const fromMins = minutesList(mins).length;
+  if (fromMins) return fromMins;
+  const n = Number(count);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Total goals scored by one team (sum of its players' goals). */
+function teamGoals(team) {
+  if (!team) return 0;
+  const all = [...(team.starters || []), ...(team.bench || [])];
+  return all.reduce((s, p) => s + (p ? countEvent(p.goals, p.goalsAt) : 0), 0);
+}
+
+/** Roll up player profiles across a map of {matchId: lineupData}. */
+function aggregatePlayers(lineups) {
+  const agg = new Map(); // key `${team}::${name}` → profile
+  for (const [matchId, data] of Object.entries(lineups)) {
+    if (!data) continue;
+    const motm = resolveMotm(data);
+    for (const side of ["home", "away"]) {
+      const team = data[side];
+      if (!team) continue;
+      const oppTeam = side === "home" ? data.away : data.home;
+      const opponent = (oppTeam && oppTeam.name) || "—";
+      const conceded = teamGoals(oppTeam);
+      const starters = team.starters || [];
+      const all = [...starters, ...(team.bench || [])];
+      for (const p of all) {
+        if (!p) continue;
+        const isStarter = starters.includes(p);
+        const minutes = Number(p.minutes) || 0;
+        const rating =
+          p.rating != null && !isNaN(p.rating) ? Number(p.rating) : null;
+        // Skip unused players (e.g. a backup keeper who never came on).
+        if (!isStarter && minutes <= 0 && rating == null) continue;
+
+        const key = `${team.name}::${p.name}`;
+        let rec = agg.get(key);
+        if (!rec) {
+          rec = {
+            name: p.name || "?",
+            number: p.number != null ? p.number : null,
+            team: team.name || "",
+            color: team.color || null,
+            pos: p.pos || null,
+            apps: 0,
+            starts: 0,
+            minutes: 0,
+            goals: 0,
+            assists: 0,
+            yellow: 0,
+            red: 0,
+            saves: 0,
+            cleanSheets: 0,
+            ratingSum: 0,
+            ratingCount: 0,
+            motm: 0,
+            best: null,
+          };
+          agg.set(key, rec);
+        }
+
+        const g = countEvent(p.goals, p.goalsAt);
+        const a = countEvent(p.assists, p.assistsAt);
+        const y = countEvent(p.yellow, p.yellowAt);
+        const rd = countEvent(p.red, p.redAt);
+        const saves = Number(p.saves) || 0;
+        const isMotm = motm && motm.p === p;
+
+        rec.apps += 1;
+        if (isStarter) rec.starts += 1;
+        rec.minutes += minutes;
+        rec.goals += g;
+        rec.assists += a;
+        rec.yellow += y;
+        rec.red += rd;
+        rec.saves += saves;
+        if (rating != null) {
+          rec.ratingSum += rating;
+          rec.ratingCount += 1;
+        }
+        if (isMotm) rec.motm += 1;
+        if (p.pos && !rec.pos) rec.pos = p.pos;
+
+        // Clean sheet: a goalkeeper or defender whose team conceded nothing.
+        const posU = (p.pos || rec.pos || "").toUpperCase();
+        if ((posU === "GK" || posU === "DEF") && conceded === 0) {
+          rec.cleanSheets += 1;
+        }
+
+        // Best single-match performance: highest rating, then most G+A.
+        if (rating != null) {
+          const better =
+            !rec.best ||
+            rating > rec.best.rating ||
+            (rating === rec.best.rating &&
+              g + a > rec.best.goals + rec.best.assists);
+          if (better) {
+            rec.best = {
+              rating,
+              goals: g,
+              assists: a,
+              opponent,
+              matchId: Number(matchId),
+              motm: !!isMotm,
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // Derived fields.
+  const list = [...agg.values()];
+  for (const r of list) {
+    r.avg = r.ratingCount ? r.ratingSum / r.ratingCount : null;
+    r.ga = r.goals + r.assists;
+    r.bestRating = r.best ? r.best.rating : null;
+    // Composite season score: consistency (rating) + end product + awards.
+    r.score =
+      r.ratingSum + r.goals * 2 + r.assists * 1.5 + r.motm * 2 + r.saves * 0.1;
+  }
+  return list;
+}
+
+/** Render the Player Standings sub-tab for tournament `t`. */
+async function renderPlayerStandings(t) {
+  const empty = document.getElementById("tn-player-empty");
+  const kpis = document.getElementById("tn-player-kpis");
+  const tableWrap = document.getElementById("tn-player-table");
+  const pott = document.getElementById("tn-player-pott");
+  const best = document.getElementById("tn-player-best");
+  const chartIds = [
+    "tn-player-goals",
+    "tn-player-assists",
+    "tn-player-rating",
+    "tn-player-ga",
+    "tn-player-minutes",
+    "tn-player-motm",
+  ];
+
+  const showEmpty = (msg) => {
+    if (empty) {
+      empty.textContent = msg;
+      empty.classList.add("show");
+    }
+    if (kpis) kpis.innerHTML = "";
+    if (tableWrap) tableWrap.innerHTML = "";
+    if (pott) pott.innerHTML = '<div class="empty">No data yet</div>';
+    if (best) best.innerHTML = '<div class="empty">No data yet</div>';
+    chartIds.forEach((id) => emptyCanvas(id, "No player data yet"));
+  };
+
+  const ids = (t.matchList || []).map((m) => m.id);
+  if (!ids.length) return showEmpty("No matches in this tournament yet.");
+
+  let lineups = {};
+  try {
+    const res = await fetch(`api/lineups?matchIds=${ids.join(",")}`, {
+      headers: { Accept: "application/json" },
+    });
+    if (res.ok) lineups = await res.json();
+  } catch {
+    /* network/parse error → treated as no data */
+  }
+
+  // Guard against a stale async response after the user switched tournaments.
+  const select = document.getElementById("tn-select");
+  if (select && select.value !== String(t.id)) return;
+
+  if (!lineups || !Object.keys(lineups).length) {
+    return showEmpty(
+      "No player analysis data for this tournament yet. Add match lineups to populate player standings.",
+    );
+  }
+  if (empty) empty.classList.remove("show");
+
+  const players = aggregatePlayers(lineups);
+  if (!players.length) {
+    return showEmpty("No player appearances recorded yet.");
+  }
+
+  const matchesAnalysed = Object.keys(lineups).length;
+  const totalGoals = players.reduce((s, p) => s + p.goals, 0);
+  const totalAssists = players.reduce((s, p) => s + p.assists, 0);
+  const totalMotm = players.reduce((s, p) => s + p.motm, 0);
+
+  // KPIs.
+  if (kpis) {
+    kpis.innerHTML = "";
+    const items = [
+      ["Players", players.length],
+      ["Matches Analysed", matchesAnalysed],
+      ["Goals", totalGoals],
+      ["Assists", totalAssists],
+      ["⭐ Awards", totalMotm],
+    ];
+    for (const [label, value] of items) {
+      kpis.append(
+        el("div", { className: "kpi" }, [
+          el("div", { className: "value", textContent: String(value) }),
+          el("div", { className: "label", textContent: label }),
+        ]),
+      );
+    }
+  }
+
+  // Spotlights.
+  const byScore = players.slice().sort((a, b) => b.score - a.score);
+  const top = byScore[0];
+  if (pott && top) {
+    const disc = `<span class="ps-disc"${top.color ? ` style="background:${esc(top.color)}"` : ""}>${esc(top.number != null ? String(top.number) : (top.name || "?").charAt(0))}</span>`;
+    const bits = [];
+    if (top.goals) bits.push(`${top.goals} ⚽`);
+    if (top.assists) bits.push(`${top.assists} 🅰️`);
+    if (top.motm) bits.push(`${top.motm} ⭐`);
+    if (top.avg != null) bits.push(`${top.avg.toFixed(2)} avg`);
+    pott.innerHTML = `
+      <div class="ps-spot">
+        ${disc}
+        <div class="ps-spot-main">
+          <div class="name">${esc(top.name)} <span class="ps-team">${esc(top.team)}</span></div>
+          <div class="stat">${bits.join(" · ") || "—"} · ${top.apps} app${top.apps === 1 ? "" : "s"}</div>
+        </div>
+      </div>`;
+  }
+
+  // Best single-match performance across all players.
+  let bestPerf = null;
+  for (const r of players) {
+    if (r.best && (!bestPerf || r.best.rating > bestPerf.best.rating)) {
+      bestPerf = r;
+    }
+  }
+  if (best && bestPerf) {
+    const b = bestPerf.best;
+    const extra = [];
+    if (b.goals) extra.push(`${b.goals} ⚽`);
+    if (b.assists) extra.push(`${b.assists} 🅰️`);
+    if (b.motm) extra.push("⭐ MOTM");
+    best.innerHTML = `
+      <div class="name">${esc(bestPerf.name)} <span class="ps-team">${esc(bestPerf.team)}</span></div>
+      <div class="stat"><strong class="ps-rating ${ratingClass(b.rating)}">${b.rating.toFixed(1)}</strong> vs ${esc(b.opponent)}${extra.length ? ` · ${extra.join(" · ")}` : ""}</div>`;
+  }
+
+  // Charts.
+  const topBy = (valueFn, n = 8) =>
+    players
+      .filter((p) => valueFn(p) > 0)
+      .sort((a, b) => valueFn(b) - valueFn(a))
+      .slice(0, n);
+  const drawBar = (id, rows, valueFn, label, fixed) => {
+    if (!rows.length) return emptyCanvas(id, "No data yet");
+    barChart(
+      id,
+      rows.map((r) => r.name),
+      rows.map((r) =>
+        fixed != null ? Number(valueFn(r).toFixed(fixed)) : valueFn(r),
+      ),
+      label,
+      null,
+      { maintainAspectRatio: false },
+    );
+  };
+
+  drawBar(
+    "tn-player-goals",
+    topBy((p) => p.goals),
+    (p) => p.goals,
+    "Goals",
+  );
+  drawBar(
+    "tn-player-assists",
+    topBy((p) => p.assists),
+    (p) => p.assists,
+    "Assists",
+  );
+  // Prefer players with 2+ appearances; fall back to 1 when none qualify yet.
+  const rated = players.filter((p) => p.avg != null);
+  const multiApp = rated.filter((p) => p.apps >= 2);
+  drawBar(
+    "tn-player-rating",
+    (multiApp.length ? multiApp : rated)
+      .sort((a, b) => b.avg - a.avg)
+      .slice(0, 8),
+    (p) => p.avg,
+    "Avg rating",
+    2,
+  );
+  drawBar(
+    "tn-player-ga",
+    topBy((p) => p.ga),
+    (p) => p.ga,
+    "Goals + assists",
+  );
+  drawBar(
+    "tn-player-minutes",
+    topBy((p) => p.minutes),
+    (p) => p.minutes,
+    "Minutes",
+  );
+  drawBar(
+    "tn-player-motm",
+    topBy((p) => p.motm),
+    (p) => p.motm,
+    "⭐ awards",
+  );
+
+  // Standings table (default order: composite score, high → low).
+  const ranked = byScore.map((r, i) => ({ ...r, rank: i + 1 }));
+  const columns = [
+    {
+      label: "#",
+      numeric: true,
+      value: (r) => r.rank,
+      render: (r) => rankMedal(r.rank),
+    },
+    {
+      label: "Player",
+      value: (r) => r.name,
+      render: (r) =>
+        `${r.number != null ? `<span class="ps-num">${esc(String(r.number))}</span> ` : ""}${esc(r.name)}`,
+    },
+    {
+      label: "Pos",
+      value: (r) => r.pos || "",
+      render: (r) =>
+        r.pos ? `<span class="ps-pos">${esc(r.pos)}</span>` : "–",
+    },
+    { label: "Team", value: (r) => r.team, render: (r) => esc(r.team) },
+    {
+      label: "Apps",
+      numeric: true,
+      value: (r) => r.apps,
+      render: (r) => r.apps,
+    },
+    {
+      label: "Goals",
+      numeric: true,
+      value: (r) => r.goals,
+      render: (r) => r.goals,
+    },
+    {
+      label: "Assists",
+      numeric: true,
+      value: (r) => r.assists,
+      render: (r) => r.assists,
+    },
+    {
+      label: "Avg",
+      numeric: true,
+      value: (r) => (r.avg == null ? null : r.avg),
+      render: (r) =>
+        r.avg == null
+          ? "–"
+          : `<span class="ps-rating ${ratingClass(r.avg)}">${r.avg.toFixed(2)}</span>`,
+    },
+    {
+      label: "Best",
+      numeric: true,
+      value: (r) => (r.bestRating == null ? null : r.bestRating),
+      render: (r) =>
+        r.bestRating == null
+          ? "–"
+          : `<span class="ps-rating ${ratingClass(r.bestRating)}">${r.bestRating.toFixed(1)}</span>`,
+    },
+    {
+      label: "Saves",
+      numeric: true,
+      value: (r) => r.saves,
+      render: (r) => r.saves || 0,
+    },
+    {
+      label: "CS",
+      numeric: true,
+      value: (r) => r.cleanSheets,
+      render: (r) => r.cleanSheets || 0,
+    },
+    {
+      label: "⭐",
+      numeric: true,
+      value: (r) => r.motm,
+      render: (r) => r.motm || 0,
+    },
+  ];
+  tableWrap.innerHTML = "";
+  tableWrap.append(
+    sortableTable(ranked, columns, {
+      className: "data-table standings-table",
+      rowClass: (r) => (r.rank <= 3 ? "top-rank" : ""),
+      emptyText: "No player data.",
+    }),
+  );
+}
+
 /* ---- Tab switching ---- */
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -2141,7 +3103,22 @@ document.getElementById("match-modal").addEventListener("click", (e) => {
   if (e.target.id === "match-modal") closeMatchModal();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeMatchModal();
+  if (e.key !== "Escape") return;
+  // The player modal sits on top of the match modal — close it first.
+  const playerOverlay = document.getElementById("player-modal");
+  if (playerOverlay && !playerOverlay.hidden) {
+    closePlayerModal();
+    return;
+  }
+  closeMatchModal();
+});
+
+/* ---- Player detail modal wiring ---- */
+document
+  .getElementById("player-modal-close")
+  .addEventListener("click", closePlayerModal);
+document.getElementById("player-modal").addEventListener("click", (e) => {
+  if (e.target.id === "player-modal") closePlayerModal();
 });
 
 document.getElementById("refresh").addEventListener("click", load);

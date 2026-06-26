@@ -62,6 +62,16 @@ db.exec(`
     FOREIGN KEY (match_id)   REFERENCES matches(id)   ON DELETE CASCADE,
     FOREIGN KEY (discord_id) REFERENCES users(discord_id) ON DELETE CASCADE
   );
+
+  -- Optional "Player Analysis" data for a match (lineups, per-player match
+  -- stats and team stats). Stored as a JSON blob so the shape can evolve
+  -- without further migrations. Entirely separate from the core tables.
+  CREATE TABLE IF NOT EXISTS match_lineups (
+    match_id   INTEGER PRIMARY KEY,
+    data       TEXT NOT NULL,                 -- JSON: { home, away, teamStats }
+    updated_at INTEGER NOT NULL DEFAULT 0,    -- epoch ms of last import
+    FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE
+  );
 `);
 
 // --- Lightweight migrations (for databases created before a column existed) --
