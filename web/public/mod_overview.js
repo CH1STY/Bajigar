@@ -1,5 +1,5 @@
 import { charts, destroy, el, esc, PALETTE } from "./mod_core.js";
-import { renderMatchExplorer } from "./mod_matches.js";
+import { openMatchModal, renderMatchExplorer } from "./mod_matches.js";
 import { rankMedal, sortableTable } from "./mod_tables.js";
 import {
   renderTournamentSummary,
@@ -120,7 +120,7 @@ export function renderBlock(p, block) {
   renderHiddenNote(p, block.overview);
   renderTopScorers(p, block.topScorers);
   renderOutcome(p, block.outcomeBreakdown);
-  renderVolume(p, block.predictionVolume);
+  renderVolume(p, block.predictionVolume, block.matchList);
   renderAccuracy(p, block.avgGoalDiff);
   renderNear(p, block.nearMisses);
   renderScorelines(p, block.predictedScorelines);
@@ -268,8 +268,12 @@ function gmtLabel() {
   return `GMT${sign}${h}${m ? ":" + String(m).padStart(2, "0") : ""}`;
 }
 
-export function renderVolume(p, rows) {
+// Map prefixes to their match lists so drawVolume can look up matches on click.
+const volumeMatches = {};
+
+export function renderVolume(p, rows, matches) {
   volumeData[p] = rows || [];
+  volumeMatches[p] = matches || [];
   const hint = document.getElementById(`${p}-volume-hint`);
   if (hint)
     hint.textContent = `picks per match · dates as “MMM D, HH:MM” (24h, ${gmtLabel()})`;
@@ -377,8 +381,17 @@ function drawVolume(p) {
           ticks: { autoSkip: false, maxRotation: 0, minRotation: 0 },
         },
         y: { beginAtZero: true, ticks: { precision: 0 } },
-      },
-    },
+      },      onClick: (event, activeElements) => {
+        if (activeElements.length === 0) return;
+        const dataIndex = activeElements[0].index;
+        const row = rows[dataIndex];
+        if (!row || !row.matchId) return;
+        const matches = volumeMatches[p] || [];
+        const match = matches.find(
+          (m) => (m.id ?? m.matchId) === row.matchId,
+        );
+        if (match) openMatchModal(match, p);
+      },    },
   });
 }
 
