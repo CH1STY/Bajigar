@@ -87,6 +87,18 @@ document.querySelectorAll(".nav-jump").forEach((btn) => {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+    if (jump === "player-leaderboard") {
+      // Switch to tournaments tab and player standings subtab
+      const tabBtn = document.querySelector('button[data-tab="tournaments"]');
+      if (tabBtn) tabBtn.click();
+      const subtabBtn = document.querySelector('button[data-subtab="players"]');
+      if (subtabBtn) subtabBtn.click();
+      setTimeout(() => {
+        const node = document.getElementById("tn-player-table");
+        if (node) node.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+      return;
+    }
     const p = activePrefix();
     // The explorer and players sections live in the Predictions sub-tab, so
     // make sure it's visible before scrolling to them.

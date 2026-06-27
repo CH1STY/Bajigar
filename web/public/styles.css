@@ -234,6 +234,7 @@ main {
 canvas {
   width: 100% !important;
   max-height: 320px;
+  cursor: pointer;
 }
 
 .spotlight .name {

@@ -1,6 +1,11 @@
 import { renderThirdPlacedCard } from "./mod_bracket.js";
 import { charts, el, esc, parseScore } from "./mod_core.js";
-import { discStyle, minutesList, ratingClass, resolveMotm } from "./mod_lineup.js";
+import {
+  discStyle,
+  minutesList,
+  ratingClass,
+  resolveMotm,
+} from "./mod_lineup.js";
 import { barChart, emptyCanvas, render } from "./mod_overview.js";
 import { paginatedStandingsTable, rankMedal } from "./mod_tables.js";
 import { computeLeagueTable, renderTeamTable } from "./mod_tournament.js";
@@ -478,7 +483,7 @@ export async function renderPlayerStandings(t) {
       label: "Player",
       value: (r) => r.name,
       render: (r) =>
-        `${r.number != null ? `<span class="ps-num">${esc(String(r.number))}</span> ` : ""}${esc(r.name)}`,
+        `<button class="ps-player-btn" data-player-name="${esc(r.name)}" style="border:none;background:none;color:var(--link);cursor:pointer;text-decoration:underline;padding:0;font-size:inherit;font-family:inherit">${r.number != null ? `<span class="ps-num">${esc(String(r.number))}</span> ` : ""}${esc(r.name)}</button>`,
     },
     {
       label: "Pos",
@@ -543,17 +548,101 @@ export async function renderPlayerStandings(t) {
     },
   ];
   tableWrap.innerHTML = "";
-  tableWrap.append(
-    paginatedStandingsTable(ranked, columns, {
-      className: "data-table standings-table",
-      rowClass: (r) => (r.rank <= 3 ? "top-rank" : ""),
-      emptyText: "No player data.",
-      searchValue: (r) => r.name,
-      searchPlaceholder: "Search player…",
-      defaultSortIndex: columns.findIndex((c) => c.label === "Avg"),
-    }),
-  );
+  const table = paginatedStandingsTable(ranked, columns, {
+    className: "data-table standings-table",
+    rowClass: (r) => (r.rank <= 3 ? "top-rank" : ""),
+    emptyText: "No player data.",
+    searchValue: (r) => r.name,
+    searchPlaceholder: "Search player…",
+    defaultSortIndex: columns.findIndex((c) => c.label === "Avg"),
+  });
+  tableWrap.append(table);
+
+  // Add click handlers to player name buttons
+  table.querySelectorAll(".ps-player-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openPlayerPredictionHistory(btn.dataset.playerName, t);
+    });
+  });
+}
+
+/**
+ * Show a modal with a player's prediction history for a tournament.
+ * @param {string} playerName - The player's name (Discord username)
+ * @param {Object} tournament - The tournament object with matchList
+ */
+export async function openPlayerPredictionHistory(playerName, tournament) {
+  const modal = document.getElementById("player-modal");
+  const body = document.getElementById("player-modal-body");
+  if (!modal || !body) return;
+
+  body.innerHTML = `<div style="text-align: center; padding: 20px;"><em>Loading...</em></div>`;
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+
+  try {
+    // Fetch all predictions for this tournament
+    const matchIds = (tournament.matchList || []).map((m) => m.id);
+    const res = await fetch(
+      `/api/predictions?matchIds=${matchIds.join(",")}&playerName=${encodeURIComponent(playerName)}`,
+      { headers: { Accept: "application/json" } },
+    );
+
+    if (!res.ok) {
+      body.innerHTML = `<div style="padding: 20px;"><strong>${esc(playerName)}</strong><p style="color:var(--red)">No prediction data found.</p></div>`;
+      return;
+    }
+
+    const predictions = await res.json();
+    const matches = new Map(tournament.matchList.map((m) => [m.id, m]));
+
+    // Sort predictions by match number (descending)
+    const sorted = (predictions || []).sort((a, b) => {
+      const numA = matches.get(a.matchId)?.matchNumber ?? a.matchId;
+      const numB = matches.get(b.matchId)?.matchNumber ?? b.matchId;
+      return numB - numA;
+    });
+
+    if (!sorted.length) {
+      body.innerHTML = `<div style="padding: 20px;"><strong>${esc(playerName)}</strong><p><em>No predictions in this tournament.</em></p></div>`;
+      return;
+    }
+
+    let html = `<div style="padding: 20px;">
+      <h2 style="margin-top: 0; margin-bottom: 16px;">${esc(playerName)} — Match Predictions</h2>
+      <table style="width:100%; border-collapse: collapse; font-size:14px;">
+        <thead style="background:var(--bg-accent); border-bottom:2px solid var(--border);">
+          <tr>
+            <th style="padding:8px; text-align:left;">Match</th>
+            <th style="padding:8px; text-align:left;">Prediction</th>
+            <th style="padding:8px; text-align:left;">Result</th>
+            <th style="padding:8px; text-align:center;">Points</th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+    for (const pred of sorted) {
+      const match = matches.get(pred.matchId);
+      if (!match) continue;
+
+      const label = `#${match.matchNumber ?? match.id} ${esc(match.teamA)} v ${esc(match.teamB)}`;
+      const result = match.result ? esc(match.result) : "—";
+      const points = pred.points_earned ?? 0;
+      const pointsColor = points > 0 ? "var(--green)" : "var(--muted)";
+
+      html += `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;">${label}</td>
+        <td style="padding:8px;"><code>${esc(pred.value || "—")}</code></td>
+        <td style="padding:8px;"><code>${result}</code></td>
+        <td style="padding:8px; text-align:center; color:${pointsColor}; font-weight:600;">${points}</td>
+      </tr>`;
+    }
+
+    html += `</tbody></table></div>`;
+    body.innerHTML = html;
+  } catch (err) {
+    body.innerHTML = `<div style="padding: 20px;"><strong>${esc(playerName)}</strong><p style="color:var(--red)">Error loading predictions: ${esc(err.message)}</p></div>`;
+  }
 }
 
 /* ---- Tab + sub-tab switching and the dynamic navbar ---------------------- */
-
