@@ -260,6 +260,32 @@
         gap: 18px;
         margin-bottom: 14px;
       }
+      .sofa-autofetch {
+        border: 1px solid var(--accent-2);
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin-bottom: 18px;
+        background: rgba(88, 101, 242, 0.06);
+      }
+      .sofa-autofetch .af-head {
+        font-weight: 700;
+        font-size: 14px;
+        margin-bottom: 8px;
+        color: var(--text);
+      }
+      .bm-link {
+        display: inline-block;
+        padding: 4px 10px;
+        margin: 2px 0;
+        border: 1px solid var(--accent-2);
+        border-radius: 6px;
+        background: var(--accent-2);
+        color: #fff;
+        font-weight: 600;
+        font-size: 13px;
+        text-decoration: none;
+        cursor: grab;
+      }
       .sofa-field {
         border: 1px solid var(--border);
         border-radius: 8px;
@@ -394,6 +420,76 @@
             target match in the panel below first so the team names and match id
             are filled in.
           </p>
+          <div class="sofa-autofetch">
+            <div class="af-head">
+              ⚡ One-click grab — bookmarklet, then paste
+            </div>
+            <ol class="hint" style="margin: 0 0 10px 18px; padding: 0">
+              <li>
+                Drag this to your bookmarks bar:
+                <a id="sofaBookmarklet" class="bm-link" href="#"
+                  >📥 SofaScore → JSON</a
+                >
+                (or
+                <button id="sofaCopyBm" class="ghost" type="button">
+                  copy the code
+                </button>
+                to paste into a new bookmark).
+              </li>
+              <li>
+                Open the match on <code>sofascore.com</code>, click the bookmark
+                — it copies a combined JSON blob to your clipboard.
+              </li>
+              <li>
+                Paste it below and hit <strong>Load &amp; convert</strong>.
+              </li>
+            </ol>
+            <label for="sofaBundle">Paste combined JSON</label>
+            <textarea
+              id="sofaBundle"
+              spellcheck="false"
+              style="min-height: 90px"
+              placeholder='{ "eventId": 15186710, "lineups": {…}, "incidents": {…}, "statistics": {…}, "best": {…} }'
+            ></textarea>
+            <div class="row" style="margin-top: 10px">
+              <button id="sofaBundleLoad" type="button">
+                Load &amp; convert
+              </button>
+              <span class="hint" id="sofaFetchStatus" style="margin: 0"></span>
+            </div>
+
+            <details
+              style="
+                margin-top: 14px;
+                padding: 0;
+                background: none;
+                border: none;
+              "
+            >
+              <summary style="font-size: 13px; padding: 6px 0">
+                Or auto-fetch from the match link
+              </summary>
+              <p class="hint" style="margin: 6px 0">
+                Paste a SofaScore match URL (or just the event id) and hit
+                <strong>Fetch &amp; convert</strong>. Your browser pulls all
+                four endpoints straight from SofaScore — no DevTools, no cookie.
+                If your browser blocks the cross-site request, use the
+                bookmarklet above instead.
+              </p>
+              <label for="sofaUrl">Match URL or event id</label>
+              <input
+                id="sofaUrl"
+                type="text"
+                spellcheck="false"
+                placeholder="https://www.sofascore.com/…#id:15186710  — or just 15186710"
+              />
+              <div class="row" style="margin-top: 10px">
+                <button id="sofaFetchBtn" type="button">
+                  Fetch &amp; convert
+                </button>
+              </div>
+            </details>
+          </div>
           <div class="sofa-grid">
             <div class="sofa-field">
               <label for="sofaLineups"
@@ -1138,6 +1234,175 @@
           throw new Error(label + " JSON is not valid JSON.");
         }
       }
+
+      // ---- Auto-fetch SofaScore endpoints from the browser ----
+      // SofaScore's lineup endpoints are public and reply with
+      // Access-Control-Allow-Origin: *, so a plain cross-origin fetch WITHOUT
+      // credentials succeeds from any page (sending cookies would trip the
+      // "wildcard ACAO + credentials" CORS rule). The server can't do this
+      // (Cloudflare blocks server-side replay via TLS fingerprinting), but the
+      // browser can. A bookmarklet fallback covers browsers that block the
+      // cross-site request entirely.
+      const SOFA_API = "https://api.sofascore.com/api/v1/event/";
+
+      function parseEventId(raw) {
+        const s = (raw || "").trim();
+        if (!s) return "";
+        const m = s.match(/id[:=](\d+)/) || s.match(/(\d{5,})/);
+        return m ? m[1] : "";
+      }
+
+      async function sofaGet(url) {
+        try {
+          const r = await fetch(url, { credentials: "omit" });
+          return r.ok ? await r.json() : null;
+        } catch {
+          return null;
+        }
+      }
+
+      // In-page: fetch all four endpoints straight from SofaScore, fill the
+      // textareas, then run the existing converter.
+      $("sofaFetchBtn").addEventListener("click", async () => {
+        const status = $("sofaFetchStatus");
+        const btn = $("sofaFetchBtn");
+        const id = parseEventId($("sofaUrl").value);
+        if (!id) {
+          status.style.color = "var(--red)";
+          status.textContent = "Paste a SofaScore match URL or its event id.";
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = "Fetching…";
+        status.style.color = "var(--muted)";
+        status.textContent = "Fetching event " + id + " from SofaScore…";
+        try {
+          const base = SOFA_API + id;
+          const [L, I, S, B] = await Promise.all([
+            sofaGet(base + "/lineups"),
+            sofaGet(base + "/incidents"),
+            sofaGet(base + "/statistics"),
+            sofaGet(base + "/best-players"),
+          ]);
+          if (!L) {
+            status.style.color = "var(--red)";
+            status.textContent =
+              "Couldn't read lineups for event " +
+              id +
+              ". Check the id, or use the bookmarklet fallback below.";
+            return;
+          }
+          const fill = (eid, obj) => {
+            $(eid).value = obj ? JSON.stringify(obj, null, 2) : "";
+          };
+          fill("sofaLineups", L);
+          fill("sofaIncidents", I);
+          fill("sofaStats", S);
+          fill("sofaBest", B);
+          const skipped = [
+            ["incidents", I],
+            ["statistics", S],
+            ["best-players", B],
+          ]
+            .filter(([, v]) => !v)
+            .map(([k]) => k);
+          status.style.color = "var(--green)";
+          status.textContent =
+            "Loaded event " +
+            id +
+            (skipped.length ? " · not available: " + skipped.join(", ") : "") +
+            ". Converting…";
+          $("sofaConvert").click();
+        } catch (err) {
+          status.style.color = "var(--red)";
+          status.textContent =
+            "Fetch blocked (" +
+            err.message +
+            "). Use the bookmarklet fallback below.";
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Fetch & convert";
+        }
+      });
+
+      // Bookmarklet fallback: same fetch logic, but runs from a bookmark on the
+      // SofaScore tab and copies a combined blob to the clipboard. Uses only
+      // single quotes so it survives being assigned to an href. No credentials,
+      // so the public endpoints' wildcard CORS is satisfied.
+      const BOOKMARKLET =
+        "javascript:(async()=>{try{" +
+        "var m=location.href.match(/id[:=](\\d+)/);" +
+        "var id=m?m[1]:prompt('SofaScore event id?');if(!id)return;" +
+        "var b='https://api.sofascore.com/api/v1/event/'+id;" +
+        "var g=async function(u){try{var r=await fetch(u,{credentials:'omit'});" +
+        "return r.ok?await r.json():null}catch(e){return null}};" +
+        "var L=await g(b+'/lineups');var I=await g(b+'/incidents');" +
+        "var S=await g(b+'/statistics');var B=await g(b+'/best-players');" +
+        "if(!L){alert('Could not read lineups (id '+id+').');return;}" +
+        "await navigator.clipboard.writeText(JSON.stringify({eventId:id," +
+        "lineups:L,incidents:I,statistics:S,best:B}));" +
+        "alert('Copied event '+id+' \\u2014 lineups:'+(L?'ok':'MISSING')+" +
+        "' incidents:'+(I?'ok':'-')+' statistics:'+(S?'ok':'-')+" +
+        "' best:'+(B?'ok':'-'))}catch(e){alert('Bookmarklet error: '+e.message)}})();";
+
+      $("sofaBookmarklet").setAttribute("href", BOOKMARKLET);
+
+      $("sofaCopyBm").addEventListener("click", async () => {
+        const status = $("sofaFetchStatus");
+        try {
+          await navigator.clipboard.writeText(BOOKMARKLET);
+          status.style.color = "var(--green)";
+          status.textContent =
+            "Bookmarklet code copied — make a new bookmark and paste it as the URL.";
+        } catch (err) {
+          status.style.color = "var(--red)";
+          status.textContent = "Couldn't copy: " + err.message;
+        }
+      });
+
+      // Paste the combined blob the bookmarklet produced, split it into the
+      // four textareas, then run the existing converter.
+      $("sofaBundleLoad").addEventListener("click", () => {
+        const status = $("sofaFetchStatus");
+        const raw = $("sofaBundle").value.trim();
+        if (!raw) {
+          status.style.color = "var(--red)";
+          status.textContent = "Paste the JSON the bookmarklet copied first.";
+          return;
+        }
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch (err) {
+          status.style.color = "var(--red)";
+          status.textContent = "That isn't valid JSON: " + err.message;
+          return;
+        }
+        const fill = (id, obj) => {
+          $(id).value = obj ? JSON.stringify(obj, null, 2) : "";
+        };
+        fill("sofaLineups", data.lineups);
+        fill("sofaIncidents", data.incidents);
+        fill("sofaStats", data.statistics);
+        fill("sofaBest", data.best);
+        if (!data.lineups) {
+          status.style.color = "var(--red)";
+          status.textContent =
+            "Bundle has no lineups — re-run the bookmarklet on the match page.";
+          return;
+        }
+        const skipped = ["incidents", "statistics", "best"].filter(
+          (k) => !data[k],
+        );
+        status.style.color = "var(--green)";
+        status.textContent =
+          "Loaded event " +
+          (data.eventId || "?") +
+          (skipped.length ? " · not available: " + skipped.join(", ") : "") +
+          ". Converting…";
+        // Reuse the existing converter to fill the upload form.
+        $("sofaConvert").click();
+      });
 
       $("sofaConvert").addEventListener("click", () => {
         const status = $("sofaStatus");
