@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Sysadmin · Deploy</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>"
+    />
+    <style>
+      :root {
+        --bg: #0e1116;
+        --panel: #171c26;
+        --panel-2: #1f2633;
+        --line: #2a3242;
+        --text: #e6e9ef;
+        --muted: #93a0b5;
+        --accent: #5865f2;
+        --green: #57f287;
+        --amber: #faa61a;
+        --red: #ed4245;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        line-height: 1.5;
+        padding: 24px 16px 64px;
+      }
+      .wrap {
+        max-width: 640px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 4px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0 0 24px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 18px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      input[type="password"] {
+        width: 100%;
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--text);
+        padding: 10px 12px;
+        font-size: 15px;
+        outline: none;
+      }
+      input[type="password"]:focus {
+        border-color: var(--accent);
+      }
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 8px;
+        padding: 12px 18px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        color: #fff;
+        background: var(--accent);
+        transition: filter 0.15s ease;
+      }
+      button:hover:not(:disabled) {
+        filter: brightness(1.1);
+      }
+      button.danger {
+        background: var(--red);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+      }
+      .row > .grow {
+        flex: 1;
+        min-width: 200px;
+      }
+      .status {
+        margin-top: 16px;
+        padding: 12px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        display: none;
+        white-space: pre-wrap;
+      }
+      .status.show {
+        display: block;
+      }
+      .status.ok {
+        background: rgba(87, 242, 135, 0.12);
+        border: 1px solid var(--green);
+        color: var(--green);
+      }
+      .status.err {
+        background: rgba(237, 66, 69, 0.12);
+        border: 1px solid var(--red);
+        color: var(--red);
+      }
+      .status.info {
+        background: rgba(88, 101, 242, 0.12);
+        border: 1px solid var(--accent);
+        color: #aeb6ff;
+      }
+      .warn {
+        font-size: 13px;
+        color: var(--amber);
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>🚀 Sysadmin Deploy</h1>
+      <p class="sub">Pull the latest code and restart the bot + web server.</p>
+
+      <div class="panel">
+        <div class="row">
+          <div class="grow">
+            <label for="pw">Sysadmin password</label>
+            <input
+              id="pw"
+              type="password"
+              autocomplete="off"
+              placeholder="Enter the sysadmin password"
+            />
+          </div>
+          <button id="go" class="danger" type="button">
+            Pull &amp; Restart
+          </button>
+        </div>
+        <p class="warn">
+          ⚠️ This stops the running server, runs <code>git pull</code>, then
+          starts it again. The site will be briefly unavailable.
+        </p>
+        <div id="status" class="status"></div>
+      </div>
+    </div>
+
+    <script>
+      const pw = document.getElementById("pw");
+      const go = document.getElementById("go");
+      const statusEl = document.getElementById("status");
+
+      function setStatus(kind, msg) {
+        statusEl.className = "status show " + kind;
+        statusEl.textContent = msg;
+      }
+
+      async function redeploy() {
+        const password = pw.value;
+        if (!password) {
+          setStatus("err", "Enter the sysadmin password first.");
+          pw.focus();
+          return;
+        }
+        if (
+          !confirm(
+            "Stop the server, pull the latest code, and restart? The site will be briefly offline.",
+          )
+        ) {
+          return;
+        }
+        go.disabled = true;
+        setStatus("info", "Sending redeploy request…");
+        try {
+          const res = await fetch("/api/admin/redeploy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+          });
+          let data = {};
+          try {
+            data = await res.json();
+          } catch {
+            // The server may be killed mid-response during restart.
+          }
+          if (res.ok) {
+            setStatus(
+              "ok",
+              (data.message || "Redeploy started.") +
+                "\n\nWait ~30 seconds, then reload the page.",
+            );
+            pw.value = "";
+          } else {
+            setStatus(
+              "err",
+              data.error || "Redeploy failed (HTTP " + res.status + ").",
+            );
+            go.disabled = false;
+          }
+        } catch {
+          // A network error here usually means the server already went down to
+          // restart — that's expected on success.
+          setStatus(
+            "info",
+            "Connection dropped — the server is likely restarting. Wait ~30 seconds, then reload the page.",
+          );
+        }
+      }
+
+      go.addEventListener("click", redeploy);
+      pw.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") redeploy();
+      });
+    </script>
+  </body>
+</html>

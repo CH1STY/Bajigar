@@ -9,6 +9,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { spawn } = require("child_process");
 const { buildAnalytics, getDistinctUserIds } = require("./analytics");
 const { resolveMany } = require("./usernames");
 const {
@@ -23,6 +24,8 @@ const { validatePayload } = require("./lineupImport");
 const {
   LINEUP_UPLOAD_ENABLED,
   LINEUP_ADMIN_PASSWORD,
+  REDEPLOY_ENABLED,
+  SYSADMIN_PASSWORD,
 } = require("../config/config");
 
 const PORT = Number(process.env.WEB_PORT) || 2026;
@@ -36,11 +39,27 @@ const adminUploadReady = () =>
   typeof LINEUP_ADMIN_PASSWORD === "string" &&
   LINEUP_ADMIN_PASSWORD.length > 0;
 
+// The redeploy feature is only usable when explicitly enabled AND a sysadmin
+// password is configured. A blank password never matches.
+const redeployReady = () =>
+  REDEPLOY_ENABLED &&
+  typeof SYSADMIN_PASSWORD === "string" &&
+  SYSADMIN_PASSWORD.length > 0;
+
 // Constant-time password comparison to avoid leaking length/timing.
 function passwordMatches(supplied) {
   if (typeof supplied !== "string" || !LINEUP_ADMIN_PASSWORD) return false;
   const a = Buffer.from(supplied);
   const b = Buffer.from(LINEUP_ADMIN_PASSWORD);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+// Constant-time comparison for the separate sysadmin (redeploy) password.
+function sysadminPasswordMatches(supplied) {
+  if (typeof supplied !== "string" || !SYSADMIN_PASSWORD) return false;
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(SYSADMIN_PASSWORD);
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
@@ -284,6 +303,74 @@ async function handleAdminDeleteLineup(req, res) {
   }
 }
 
+// Guard so two clicks can't kick off two overlapping redeploys.
+let redeployInFlight = false;
+
+// POST /api/admin/redeploy — sysadmin-password-gated "pull & restart".
+// Validates the password, then spawns scripts/redeploy.sh fully detached so
+// the script survives this server being stopped by the script itself.
+async function handleRedeploy(req, res) {
+  // Behave as if the route doesn't exist when the feature is off.
+  if (!redeployReady()) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not found");
+    return;
+  }
+  let password = req.headers["x-sysadmin-password"];
+  if (password == null) {
+    // Fall back to a JSON body { password }.
+    try {
+      const body = await readBody(req, 4096);
+      password = body ? (JSON.parse(body).password ?? "") : "";
+    } catch {
+      password = "";
+    }
+  }
+  if (!sysadminPasswordMatches(password)) {
+    sendJson(res, 401, { error: "Incorrect sysadmin password." });
+    return;
+  }
+  if (redeployInFlight) {
+    sendJson(res, 409, { error: "A redeploy is already in progress." });
+    return;
+  }
+  redeployInFlight = true;
+
+  const scriptPath = path.join(__dirname, "..", "scripts", "redeploy.sh");
+  if (!fs.existsSync(scriptPath)) {
+    redeployInFlight = false;
+    sendJson(res, 500, { error: "Redeploy script is missing on the server." });
+    return;
+  }
+
+  try {
+    // Detached + ignored stdio + unref so the child keeps running (and can
+    // stop/restart this very server) after this process exits.
+    const child = spawn("bash", [scriptPath], {
+      cwd: path.join(__dirname, ".."),
+      env: process.env,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.on("error", (err) => {
+      console.error("Failed to start redeploy script:", err);
+      redeployInFlight = false;
+    });
+    child.unref();
+  } catch (err) {
+    redeployInFlight = false;
+    console.error("Redeploy spawn error:", err);
+    sendJson(res, 500, { error: "Failed to start the redeploy script." });
+    return;
+  }
+
+  sendJson(res, 202, {
+    ok: true,
+    message:
+      "Redeploy started: pulling latest code and restarting. The server will be briefly unavailable.",
+  });
+}
+
 async function handleStats(res) {
   try {
     const ids = getDistinctUserIds();
@@ -311,6 +398,12 @@ function serveStatic(req, res) {
   let rel = urlPath === "/" ? "index.html" : urlPath.replace(/^\/+/, "");
   // The admin page is only reachable through the gated /admin/lineup route.
   if (rel.toLowerCase() === "admin-lineup.html") {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not found");
+    return;
+  }
+  // The deploy page is only reachable through the gated /admin/deploy route.
+  if (rel.toLowerCase() === "deploy.html") {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Not found");
     return;
@@ -358,6 +451,28 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": MIME[".html"] });
       res.end(content);
     });
+    return;
+  }
+  // Sysadmin redeploy page — only exists when the feature is enabled.
+  if (req.method === "GET" && pathname === "/admin/deploy") {
+    if (!redeployReady()) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found");
+      return;
+    }
+    fs.readFile(path.join(publicDir, "deploy.html"), (err, content) => {
+      if (err) {
+        res.writeHead(500);
+        res.end("Failed to load page");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": MIME[".html"] });
+      res.end(content);
+    });
+    return;
+  }
+  if (req.method === "POST" && pathname === "/api/admin/redeploy") {
+    handleRedeploy(req, res);
     return;
   }
   if (req.method === "POST" && pathname === "/api/admin/login") {
@@ -456,6 +571,15 @@ server.listen(PORT, () => {
   } else if (LINEUP_UPLOAD_ENABLED) {
     console.log(
       "⚠️  LINEUP_UPLOAD_ENABLED is true but LINEUP_ADMIN_PASSWORD is empty — upload page disabled.",
+    );
+  }
+  if (redeployReady()) {
+    console.log(
+      `🚀 Redeploy page enabled at http://localhost:${PORT}/admin/deploy`,
+    );
+  } else if (REDEPLOY_ENABLED) {
+    console.log(
+      "⚠️  REDEPLOY_ENABLED is true but SYSADMIN_PASSWORD is empty — redeploy page disabled.",
     );
   }
 });

@@ -30,6 +30,14 @@ module.exports = {
   LINEUP_UPLOAD_ENABLED: process.env.LINEUP_UPLOAD_ENABLED === "true",
   LINEUP_ADMIN_PASSWORD: process.env.LINEUP_ADMIN_PASSWORD || "",
 
+  // Server redeploy page (/admin/deploy). Lets a sysadmin pull the latest code
+  // and restart the app from the browser by running scripts/redeploy.sh.
+  // Disabled by default — set REDEPLOY_ENABLED=true in .env to switch it on,
+  // and set a strong SYSADMIN_PASSWORD that must be entered to trigger it.
+  // When disabled the page and its API return 404 as if they don't exist.
+  REDEPLOY_ENABLED: process.env.REDEPLOY_ENABLED === "true",
+  SYSADMIN_PASSWORD: process.env.SYSADMIN_PASSWORD || "",
+
   // How long before a match deadline to send the "closing soon" alert.
   REMINDER_LEAD_MS: 30 * 60 * 1000, // 30 minutes
 
