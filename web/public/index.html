@@ -11,39 +11,60 @@
     />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="logo">🏆</span>
-        <div>
-          <h1>Bajigar Analytics</h1>
-          <p class="sub">
-            Brotherhood · sports predictions — trends, accuracy &amp;
-            near-misses
-          </p>
+    <div class="site-head">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo">🏆</span>
+          <div>
+            <h1>Bajigar Analytics</h1>
+            <p class="sub">
+              Brotherhood · sports predictions — trends, accuracy &amp;
+              near-misses
+            </p>
+          </div>
         </div>
-      </div>
-      <div
-        class="trivia"
-        id="trivia"
-        aria-live="polite"
-        title="World Cup trivia"
-      >
-        <span class="trivia-badge">⚽ Did you know?</span>
-        <span class="trivia-text" id="trivia-text"></span>
-      </div>
-      <div class="actions">
-        <span id="updated" class="updated"></span>
-        <button id="scoring-help" class="btn btn-ghost" type="button">
-          🎯 How points work
-        </button>
-        <button id="refresh" class="btn">Refresh</button>
-      </div>
-    </header>
+        <div
+          class="trivia"
+          id="trivia"
+          aria-live="polite"
+          title="World Cup trivia"
+        >
+          <span class="trivia-badge">⚽ Did you know?</span>
+          <span class="trivia-text" id="trivia-text"></span>
+        </div>
+        <div class="actions">
+          <span id="updated" class="updated"></span>
+          <button id="scoring-help" class="btn btn-ghost" type="button">
+            🎯 How points work
+          </button>
+          <button id="refresh" class="btn">Refresh</button>
+        </div>
+      </header>
 
-    <nav class="tabs">
-      <button class="tab" data-tab="overview">Overview</button>
-      <button class="tab active" data-tab="tournaments">Tournaments</button>
-    </nav>
+      <nav class="tabs navbar" id="main-nav">
+        <div class="nav-views">
+          <button class="tab" data-tab="overview">Overview</button>
+          <button class="tab active" data-tab="tournaments">Tournaments</button>
+        </div>
+        <div class="nav-jumps">
+          <button class="nav-jump" type="button" data-jump="explorer">
+            🔎 Match Explorer
+          </button>
+          <button
+            class="nav-jump nav-brackets"
+            type="button"
+            id="nav-brackets"
+            hidden
+          >
+            🥅 See Brackets
+          </button>
+          <button class="nav-jump" type="button" data-jump="players">
+            🏅 Leaderboard
+          </button>
+          <button class="nav-jump" type="button" data-jump="top">↑ Top</button>
+        </div>
+      </nav>
+    </div>
 
     <main id="app">
       <section id="tab-overview" class="tab-panel">
@@ -290,6 +311,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>

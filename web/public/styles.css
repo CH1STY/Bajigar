@@ -20,6 +20,8 @@
    devices for the overflow containers (tables, bracket, etc.). */
 html {
   scroll-behavior: smooth;
+  /* Offset anchor/jump scrolling so targets land below the sticky header. */
+  scroll-padding-top: 160px;
 }
 
 body,
@@ -66,11 +68,8 @@ body {
   justify-content: space-between;
   padding: 18px 28px;
   border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: 0;
   background: rgba(14, 17, 22, 0.85);
   backdrop-filter: blur(8px);
-  z-index: 10;
 }
 
 .brand {
@@ -124,6 +123,21 @@ main {
   padding: 24px 28px 48px;
   max-width: 1280px;
   margin: 0 auto;
+}
+
+/* Analytics block: stack every top-level section with one uniform gap.
+ * Using flex + gap (instead of per-element margins) keeps the spacing even
+ * and drops the gap entirely for hidden sections like the collapsed banner. */
+#ov-block,
+#tn-block {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+#ov-block > *,
+#tn-block > * {
+  margin-bottom: 0;
 }
 
 .kpi-grid {
@@ -358,6 +372,70 @@ table.data-table {
   border-bottom: 1px solid var(--line);
 }
 
+/* Sticky site header: topbar + navbar pinned together as one unit so the
+   quick-jump navbar sits directly below the header instead of overlapping. */
+.site-head {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--bg);
+}
+
+/* Navbar variant: view tabs on the left, quick-jump links on the right. */
+.navbar {
+  margin-top: 0;
+  padding-top: 8px;
+  background: rgba(14, 17, 22, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.nav-views {
+  display: flex;
+  gap: 6px;
+}
+
+.nav-jumps {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-bottom: 6px;
+}
+
+.nav-jump {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.nav-jump:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--panel);
+}
+
+/* "See Brackets" shortcut: green accent, only shown for knockout tournaments. */
+.nav-brackets {
+  color: var(--green);
+  border-color: rgba(63, 185, 80, 0.4);
+}
+
+.nav-brackets:hover {
+  color: var(--green);
+  border-color: var(--green);
+}
+
 .tab {
   background: transparent;
   border: 0;
@@ -384,7 +462,18 @@ table.data-table {
 }
 
 .tab-panel.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Uniform section spacing across every tab/subtab: the flex `gap` is the only
+ * vertical rhythm, so cancel the legacy per-element bottom margins that used
+ * to create uneven (or missing) gaps. Hidden sections (display:none) are
+ * dropped from flex layout, so they never leave an empty gap behind. */
+.tab-panel.active > *,
+.subtab-panel.active > * {
+  margin-bottom: 0;
 }
 
 .subtabs {
@@ -448,7 +537,9 @@ table.data-table {
 }
 
 .subtab-panel.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 @media (max-width: 560px) {
@@ -728,11 +819,73 @@ table.standings-table {
   border-color: var(--accent);
 }
 
+.volume-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.volume-filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.volume-filter input[type="date"] {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-size: 13px;
+  color-scheme: dark;
+}
+
+.volume-filter input[type="date"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.volume-clear {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.volume-clear:hover {
+  border-color: var(--accent);
+}
+
 .match-columns {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
+}
+
+.match-columns-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .match-columns-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .match-columns,
+  .match-columns-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .match-col {
@@ -760,6 +913,121 @@ table.standings-table {
 
 .match-col-head.resolved {
   border-bottom-color: rgba(155, 89, 182, 0.5);
+}
+
+.match-col-head.closed {
+  border-bottom-color: rgba(0, 188, 212, 0.55);
+}
+
+/* ---- Match modal: team history (head-to-head + recent form) ---- */
+.md-history {
+  margin: 14px 0 4px;
+  padding: 14px 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.md-history-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.hist-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 560px) {
+  .hist-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.hist-block + .hist-cols,
+.hist-block {
+  margin-top: 4px;
+}
+
+.hist-head {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.hist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(42, 50, 66, 0.5);
+}
+
+.hist-row:last-child {
+  border-bottom: 0;
+}
+
+.hist-opp {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.hist-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.hist-tb {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.hist-num {
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 34px;
+  text-align: right;
+}
+
+.form-badge {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0e1116;
+}
+
+.form-badge.form-W {
+  background: var(--green);
+}
+
+.form-badge.form-D {
+  background: var(--amber);
+}
+
+.form-badge.form-L {
+  background: var(--red);
+  color: #fff;
+}
+
+.form-badge.form-\? {
+  background: var(--line);
+  color: var(--muted);
 }
 
 /* Grouped League Table (World Cup): one mini-table per group. */
@@ -1556,6 +1824,27 @@ body.modal-open {
   max-height: 240px;
 }
 
+/* The modal scrolls its own body; keep that scrollbar subtle so it doesn't
+   read as a stray element sitting beside the close button. */
+.modal-body {
+  scrollbar-color: var(--line) transparent;
+}
+
+.modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Keep the player header text clear of the absolutely-positioned close button. */
+.ps-head {
+  padding-right: 34px;
+}
+
 /* ---- Custom thin themed scrollbar (whole UI) ---- */
 * {
   scrollbar-width: thin;
@@ -1599,6 +1888,62 @@ body.modal-open {
 
   .match-list {
     max-height: 300px;
+  }
+}
+
+/* ---- Modals on small screens: slide up as a bottom sheet ---- */
+@media (max-width: 560px) {
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal,
+  .modal--narrow {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+  }
+
+  .modal-body {
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    max-height: 92vh;
+  }
+
+  .modal-close {
+    top: 10px;
+    right: 10px;
+  }
+
+  .ps-head {
+    gap: 12px;
+    padding-right: 38px;
+  }
+
+  .ps-disc,
+  .ps-photo {
+    width: 48px;
+    height: 48px;
+    font-size: 18px;
+  }
+
+  .ps-name {
+    font-size: 16px;
+  }
+
+  .ps-score {
+    font-size: 12px;
+  }
+
+  .ps-score strong {
+    font-size: 15px;
+  }
+
+  .ps-row {
+    padding: 10px 2px;
+    font-size: 13px;
   }
 }
 
@@ -1941,12 +2286,16 @@ body.modal-open {
   border: 1px solid rgba(255, 255, 255, 0.7);
 }
 .pl-events {
-  position: absolute;
-  top: -10px;
-  right: -12px;
   font-size: 14px;
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+/* On the pitch the event icons float at the avatar's corner; elsewhere (e.g.
+   the bench list) they sit inline so they can't escape to the modal corner. */
+.pl-avatar .pl-events {
+  position: absolute;
+  top: -10px;
+  right: -12px;
 }
 .pl-events .ev {
   display: inline-flex;

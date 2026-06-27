@@ -160,6 +160,14 @@ function computeBlock(matches, allPredictions, name) {
     return m && predictionsRevealed(m);
   });
 
+  // Predictions still hidden (their match isn't revealed yet) and the
+  // distinct matches those hidden picks belong to.
+  const hidden = predictions.filter((p) => {
+    const m = matchById.get(p.match_id);
+    return m && !predictionsRevealed(m);
+  });
+  const hiddenMatchIds = new Set(hidden.map((p) => p.match_id));
+
   const playerIds = new Set(predictions.map((p) => p.discord_id));
 
   const overview = {
@@ -171,6 +179,7 @@ function computeBlock(matches, allPredictions, name) {
     totalPredictions: predictions.length,
     revealedPredictions: revealed.length,
     hiddenPredictions: predictions.length - revealed.length,
+    hiddenMatches: hiddenMatchIds.size,
     totalPlayers: playerIds.size,
     avgPredictionsPerMatch: matches.length
       ? +(predictions.length / matches.length).toFixed(2)
@@ -191,6 +200,7 @@ function computeBlock(matches, allPredictions, name) {
       label: `#${m.match_number ?? m.id} ${m.team_a} v ${m.team_b}`,
       type: m.type,
       count: countByMatch.get(m.id) || 0,
+      startTime: m.start_time || null,
       endTime: m.end_time,
     }));
 
