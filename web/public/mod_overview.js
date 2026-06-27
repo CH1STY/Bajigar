@@ -381,17 +381,17 @@ function drawVolume(p) {
           ticks: { autoSkip: false, maxRotation: 0, minRotation: 0 },
         },
         y: { beginAtZero: true, ticks: { precision: 0 } },
-      },      onClick: (event, activeElements) => {
+      },
+      onClick: (event, activeElements) => {
         if (activeElements.length === 0) return;
         const dataIndex = activeElements[0].index;
         const row = rows[dataIndex];
         if (!row || !row.matchId) return;
         const matches = volumeMatches[p] || [];
-        const match = matches.find(
-          (m) => (m.id ?? m.matchId) === row.matchId,
-        );
+        const match = matches.find((m) => (m.id ?? m.matchId) === row.matchId);
         if (match) openMatchModal(match, p);
-      },    },
+      },
+    },
   });
 }
 
