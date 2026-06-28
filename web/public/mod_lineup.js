@@ -543,6 +543,11 @@ export function openPlayerModal(entry, data, m) {
     <h3 class="md-section">Match stats</h3>
     <div class="ps-stats">${playerStatRows(p, isGK)}</div>`;
 
+  const dialog = overlay.querySelector(".modal");
+  if (dialog) {
+    dialog.classList.remove("modal--wide");
+    dialog.classList.add("modal--narrow");
+  }
   overlay.hidden = false;
   document.body.classList.add("modal-open");
 }

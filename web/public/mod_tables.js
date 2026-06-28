@@ -78,10 +78,15 @@ export function rankMedal(rank) {
  * header sorting. `opts.defaultSortIndex` sets the initial sort column.
  */
 export function paginatedStandingsTable(rows, columns, opts = {}) {
-  const PAGE_SIZES = [50, 100, 200];
+  const PAGE_SIZES =
+    Array.isArray(opts.pageSizes) && opts.pageSizes.length
+      ? opts.pageSizes
+      : [50, 100, 200];
   const searchValue = opts.searchValue || (() => "");
   let query = "";
-  let pageSize = PAGE_SIZES[0];
+  let pageSize = PAGE_SIZES.includes(opts.defaultPageSize)
+    ? opts.defaultPageSize
+    : PAGE_SIZES[0];
   let page = 1;
   let sortIdx =
     opts.defaultSortIndex != null && opts.defaultSortIndex >= 0

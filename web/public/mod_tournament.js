@@ -1,4 +1,8 @@
-import { renderPlayerStandings, renderTeamAnalytics } from "./mod_analytics.js";
+import {
+  openPredictorHistory,
+  renderPlayerStandings,
+  renderTeamAnalytics,
+} from "./mod_analytics.js";
 import {
   buildLeagueTableEl,
   renderGroupedLeagueTables,
@@ -150,7 +154,12 @@ export function renderStandings(container, t) {
       value: (r) => r.rank,
       render: (r) => rankMedal(r.rank),
     },
-    { label: "Player", value: (r) => r.name, render: (r) => esc(r.name) },
+    {
+      label: "Player",
+      value: (r) => r.name,
+      render: (r) =>
+        `<button class="predictor-btn" data-player-id="${esc(String(r.id))}" style="border:none;background:none;color:var(--link);cursor:pointer;text-decoration:underline;padding:0;font-size:inherit;font-family:inherit">${esc(r.name)}</button>`,
+    },
     {
       label: "Points",
       numeric: true,
@@ -177,6 +186,17 @@ export function renderStandings(container, t) {
       emptyText: "No predictions yet.",
     }),
   );
+
+  // Clicking a player opens their match-by-match prediction history.
+  container.querySelectorAll(".predictor-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const player = t.players.find(
+        (r) => String(r.id) === btn.dataset.playerId,
+      );
+      if (player)
+        openPredictorHistory(player, { matchList: t.matchList || [] });
+    });
+  });
 }
 
 /* ---- Team Standings (real-time football league table) ----

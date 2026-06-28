@@ -9,6 +9,7 @@ import {
 import { barChart, emptyCanvas, render } from "./mod_overview.js";
 import { paginatedStandingsTable, rankMedal } from "./mod_tables.js";
 import { computeLeagueTable, renderTeamTable } from "./mod_tournament.js";
+import { appState } from "./mod_state.js";
 
 export function resolvedFootballMatches(matchList) {
   const out = [];
@@ -207,6 +208,7 @@ export function aggregatePlayers(lineups, matchTeams) {
             ratingCount: 0,
             motm: 0,
             best: null,
+            matches: [],
           };
           agg.set(key, rec);
         }
@@ -235,9 +237,28 @@ export function aggregatePlayers(lineups, matchTeams) {
 
         // Clean sheet: a goalkeeper or defender whose team conceded nothing.
         const posU = (p.pos || rec.pos || "").toUpperCase();
-        if ((posU === "GK" || posU === "DEF") && conceded === 0) {
+        const isCleanSheet =
+          (posU === "GK" || posU === "DEF") && conceded === 0;
+        if (isCleanSheet) {
           rec.cleanSheets += 1;
         }
+
+        // Per-match breakdown for the player detail modal.
+        rec.matches.push({
+          matchId: Number(matchId),
+          opponent,
+          started: isStarter,
+          minutes,
+          rating,
+          goals: g,
+          assists: a,
+          yellow: y,
+          red: rd,
+          saves,
+          conceded,
+          cleanSheet: isCleanSheet,
+          motm: !!isMotm,
+        });
 
         // Best single-match performance: highest rating, then most G+A.
         if (rating != null) {
@@ -483,7 +504,7 @@ export async function renderPlayerStandings(t) {
       label: "Player",
       value: (r) => r.name,
       render: (r) =>
-        `<button class="ps-player-btn" data-player-name="${esc(r.name)}" style="border:none;background:none;color:var(--link);cursor:pointer;text-decoration:underline;padding:0;font-size:inherit;font-family:inherit">${r.number != null ? `<span class="ps-num">${esc(String(r.number))}</span> ` : ""}${esc(r.name)}</button>`,
+        `<button class="ps-player-btn" data-player-name="${esc(r.name)}" data-player-team="${esc(r.team || "")}" style="border:none;background:none;color:var(--link);cursor:pointer;text-decoration:underline;padding:0;font-size:inherit;font-family:inherit">${r.number != null ? `<span class="ps-num">${esc(String(r.number))}</span> ` : ""}${esc(r.name)}</button>`,
     },
     {
       label: "Pos",
@@ -561,88 +582,336 @@ export async function renderPlayerStandings(t) {
   // Add click handlers to player name buttons
   table.querySelectorAll(".ps-player-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      openPlayerPredictionHistory(btn.dataset.playerName, t);
+      const name = btn.dataset.playerName;
+      const team = btn.dataset.playerTeam || "";
+      const rec =
+        ranked.find((r) => r.name === name && (r.team || "") === team) ||
+        ranked.find((r) => r.name === name);
+      if (rec) openPlayerStats(rec, t);
     });
   });
 }
 
 /**
- * Show a modal with a player's prediction history for a tournament.
- * @param {string} playerName - The player's name (Discord username)
- * @param {Object} tournament - The tournament object with matchList
+ * Show a modal with an individual player's match-by-match analysis for a
+ * tournament. Uses the already-computed standings record (per-match goals,
+ * assists, ratings, etc.) — this is player performance data, not predictions.
+ * @param {Object} player - The aggregated player record from aggregatePlayers.
+ * @param {Object} tournament - The tournament object (used for match labels).
  */
-export async function openPlayerPredictionHistory(playerName, tournament) {
+export function openPlayerStats(player, tournament) {
   const modal = document.getElementById("player-modal");
   const body = document.getElementById("player-modal-body");
   if (!modal || !body) return;
 
-  body.innerHTML = `<div style="text-align: center; padding: 20px;"><em>Loading...</em></div>`;
-  modal.hidden = false;
-  document.body.classList.add("modal-open");
+  const disc = `<span class="ps-disc"${discStyle(player.color)}>${esc(
+    player.number != null
+      ? String(player.number)
+      : (player.name || "?").charAt(0),
+  )}</span>`;
 
-  try {
-    // Fetch all predictions for this tournament
-    const matchIds = (tournament.matchList || []).map((m) => m.id);
-    const res = await fetch(
-      `/api/predictions?matchIds=${matchIds.join(",")}&playerName=${encodeURIComponent(playerName)}`,
-      { headers: { Accept: "application/json" } },
-    );
+  const avgTxt =
+    player.avg == null
+      ? "–"
+      : `<span class="ps-rating ${ratingClass(player.avg)}">${player.avg.toFixed(2)}</span>`;
 
-    if (!res.ok) {
-      body.innerHTML = `<div style="padding: 20px;"><strong>${esc(playerName)}</strong><p style="color:var(--red)">No prediction data found.</p></div>`;
-      return;
-    }
+  // Summary chips above the per-match table.
+  const chip = (label, value) =>
+    `<span class="ps-chip" style="display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border:1px solid var(--border); border-radius:999px; background:var(--bg-accent); font-size:13px;"><strong>${esc(String(value))}</strong> ${esc(label)}</span>`;
+  const chips = [
+    chip("apps", player.apps || 0),
+    chip("⚽", player.goals || 0),
+    chip("🅰️", player.assists || 0),
+    chip("⭐", player.motm || 0),
+    chip("CS", player.cleanSheets || 0),
+    chip("min", player.minutes || 0),
+  ].join("");
 
-    const predictions = await res.json();
-    const matches = new Map(tournament.matchList.map((m) => [m.id, m]));
+  // Match-by-match rows (most recent / highest match number first).
+  const matchMap = new Map((tournament.matchList || []).map((m) => [m.id, m]));
+  const rows = (player.matches || []).slice().sort((a, b) => {
+    const na = matchMap.get(a.matchId)?.matchNumber ?? a.matchId;
+    const nb = matchMap.get(b.matchId)?.matchNumber ?? b.matchId;
+    return nb - na;
+  });
 
-    // Sort predictions by match number (descending)
-    const sorted = (predictions || []).sort((a, b) => {
-      const numA = matches.get(a.matchId)?.matchNumber ?? a.matchId;
-      const numB = matches.get(b.matchId)?.matchNumber ?? b.matchId;
-      return numB - numA;
-    });
+  let tableRows = "";
+  for (const mr of rows) {
+    const m = matchMap.get(mr.matchId);
+    const label = m ? `#${m.matchNumber ?? m.id}` : `#${mr.matchId}`;
+    const result = m && m.result ? esc(m.result) : "—";
+    const ratingCell =
+      mr.rating == null
+        ? "–"
+        : `<span class="ps-rating ${ratingClass(mr.rating)}">${mr.rating.toFixed(1)}</span>`;
+    const badges = [];
+    if (mr.motm) badges.push("⭐");
+    if (mr.cleanSheet) badges.push("🧤");
+    if (mr.yellow) badges.push(`${mr.yellow}🟨`);
+    if (mr.red) badges.push(`${mr.red}🟥`);
+    tableRows += `<tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:8px; white-space:nowrap;">${label}</td>
+      <td style="padding:8px;">${esc(mr.opponent || "—")}</td>
+      <td style="padding:8px; text-align:center;"><code>${result}</code></td>
+      <td style="padding:8px; text-align:center;">${mr.started ? "Start" : "Sub"}</td>
+      <td style="padding:8px; text-align:center;">${mr.minutes || 0}'</td>
+      <td style="padding:8px; text-align:center;">${mr.goals || 0}</td>
+      <td style="padding:8px; text-align:center;">${mr.assists || 0}</td>
+      <td style="padding:8px; text-align:center;">${mr.saves || 0}</td>
+      <td style="padding:8px; text-align:center;">${ratingCell}</td>
+      <td style="padding:8px; text-align:center; white-space:nowrap;">${badges.join(" ") || "—"}</td>
+    </tr>`;
+  }
 
-    if (!sorted.length) {
-      body.innerHTML = `<div style="padding: 20px;"><strong>${esc(playerName)}</strong><p><em>No predictions in this tournament.</em></p></div>`;
-      return;
-    }
-
-    let html = `<div style="padding: 20px;">
-      <h2 style="margin-top: 0; margin-bottom: 16px;">${esc(playerName)} — Match Predictions</h2>
-      <table style="width:100%; border-collapse: collapse; font-size:14px;">
+  const tableHtml = rows.length
+    ? `<table style="width:100%; border-collapse:collapse; font-size:14px;">
         <thead style="background:var(--bg-accent); border-bottom:2px solid var(--border);">
           <tr>
             <th style="padding:8px; text-align:left;">Match</th>
-            <th style="padding:8px; text-align:left;">Prediction</th>
-            <th style="padding:8px; text-align:left;">Result</th>
-            <th style="padding:8px; text-align:center;">Points</th>
+            <th style="padding:8px; text-align:left;">Opponent</th>
+            <th style="padding:8px; text-align:center;">Result</th>
+            <th style="padding:8px; text-align:center;">Role</th>
+            <th style="padding:8px; text-align:center;">Min</th>
+            <th style="padding:8px; text-align:center;">⚽</th>
+            <th style="padding:8px; text-align:center;">🅰️</th>
+            <th style="padding:8px; text-align:center;">Saves</th>
+            <th style="padding:8px; text-align:center;">Rating</th>
+            <th style="padding:8px; text-align:center;">Notes</th>
           </tr>
         </thead>
-        <tbody>`;
+        <tbody>${tableRows}</tbody>
+      </table>`
+    : `<p style="color:var(--muted)"><em>No match appearances recorded.</em></p>`;
 
-    for (const pred of sorted) {
-      const match = matches.get(pred.matchId);
-      if (!match) continue;
+  body.innerHTML = `<div style="padding:20px;">
+    <div class="ps-spot" style="margin-bottom:12px;">
+      ${disc}
+      <div class="ps-spot-main">
+        <div class="name">${esc(player.name)} <span class="ps-team">${esc(player.team || "")}</span></div>
+        <div class="stat">${player.pos ? `<span class="ps-pos">${esc(player.pos)}</span> · ` : ""}Avg rating ${avgTxt}</div>
+      </div>
+    </div>
+    <div class="ps-chips" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">${chips}</div>
+    <h3 style="margin:0 0 8px;">Match-by-Match</h3>
+    ${tableHtml}
+  </div>`;
 
-      const label = `#${match.matchNumber ?? match.id} ${esc(match.teamA)} v ${esc(match.teamB)}`;
-      const result = match.result ? esc(match.result) : "—";
-      const points = pred.points_earned ?? 0;
-      const pointsColor = points > 0 ? "var(--green)" : "var(--muted)";
-
-      html += `<tr style="border-bottom:1px solid var(--border);">
-        <td style="padding:8px;">${label}</td>
-        <td style="padding:8px;"><code>${esc(pred.value || "—")}</code></td>
-        <td style="padding:8px;"><code>${result}</code></td>
-        <td style="padding:8px; text-align:center; color:${pointsColor}; font-weight:600;">${points}</td>
-      </tr>`;
-    }
-
-    html += `</tbody></table></div>`;
-    body.innerHTML = html;
-  } catch (err) {
-    body.innerHTML = `<div style="padding: 20px;"><strong>${esc(playerName)}</strong><p style="color:var(--red)">Error loading predictions: ${esc(err.message)}</p></div>`;
+  const dialog = modal.querySelector(".modal");
+  if (dialog) {
+    dialog.classList.remove("modal--narrow");
+    dialog.classList.add("modal--wide");
   }
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+/**
+ * Show a modal with a Discord predictor's match-by-match prediction history for
+ * an analytics block (global overview or a single tournament). Uses the
+ * per-match prediction rows already present in `block.matchList[].predictions`
+ * (each has id, value, points, diff, outcomeHit, correct) so no extra fetch is
+ * needed. Renders each match: their pick, the actual score, points earned and a
+ * point breakdown (correct outcome / near miss / exact / bonus).
+ * @param {Object} player - Standings row for the predictor ({ id, name, ... }).
+ * @param {Object} block  - Analytics block with a `matchList` array.
+ */
+export function openPredictorHistory(player, block) {
+  const modal = document.getElementById("player-modal");
+  const body = document.getElementById("player-modal-body");
+  if (!modal || !body || !player) return;
+
+  const sc = appState.scoringConfig || {};
+  const fb = sc.football || {
+    exact: 10,
+    near: 2.5,
+    outcome: 5,
+    tiebreakerWinner: 5,
+    tiebreakerExact: 5,
+  };
+  const ck = sc.cricket || { correct: 10 };
+
+  // Collect this player's predictions across every match in the block.
+  const matchList = (block && block.matchList) || [];
+  const entries = [];
+  for (const m of matchList) {
+    const pred = (m.predictions || []).find((p) => p.id === player.id);
+    if (!pred) continue;
+    entries.push({ m, pred });
+  }
+  entries.sort(
+    (a, b) => (b.m.matchNumber ?? b.m.id) - (a.m.matchNumber ?? a.m.id),
+  );
+
+  // Point breakdown for a single prediction. Derived from the *awarded* points
+  // (the authoritative leaderboard value) by decomposing them into the scoring
+  // components, so the badges always reconcile with the points actually earned
+  // — even when a match result was edited after the prediction was scored.
+  const cmp = (a, b) => {
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return 0;
+  };
+  const breakdown = (m, pred) => {
+    if (m.status !== "resolved" || !m.result) {
+      return `<span class="pb-chip pb-pending">Pending</span>`;
+    }
+    const pts = Math.round((Number(pred.points) || 0) * 100) / 100;
+    let chips = [];
+    if (m.type !== "football") {
+      if (pts <= 0) chips = [{ label: "Miss", cls: "pb-miss" }];
+      else if (Math.abs(pts - ck.correct) < 0.001)
+        chips = [{ label: "Correct", cls: "pb-ok", pts: ck.correct }];
+      else chips = [{ label: "Awarded", cls: "pb-ok", pts }];
+    } else if (pts <= 0) {
+      chips = [{ label: "Miss", cls: "pb-miss" }];
+    } else {
+      const menu = [
+        {
+          key: "outcome",
+          label: "Correct outcome",
+          pts: fb.outcome,
+          cls: "pb-ok",
+          tb: false,
+        },
+        {
+          key: "exact",
+          label: "Exact score",
+          pts: fb.exact,
+          cls: "pb-exact",
+          tb: false,
+        },
+        {
+          key: "near",
+          label: "Near miss",
+          pts: fb.near,
+          cls: "pb-near",
+          tb: false,
+        },
+      ];
+      if (m.isKnockout) {
+        menu.push({
+          key: "tbWinner",
+          label: "Tiebreaker winner",
+          pts: fb.tiebreakerWinner,
+          cls: "pb-bonus",
+          tb: true,
+        });
+        menu.push({
+          key: "tbExact",
+          label: "Tiebreaker exact",
+          pts: fb.tiebreakerExact,
+          cls: "pb-bonus",
+          tb: true,
+        });
+      }
+      const n = menu.length;
+      let best = null;
+      for (let mask = 1; mask < 1 << n; mask++) {
+        const sel = [];
+        for (let i = 0; i < n; i++) if (mask & (1 << i)) sel.push(menu[i]);
+        const keys = new Set(sel.map((s) => s.key));
+        if (keys.has("exact") && keys.has("near")) continue;
+        if (keys.has("exact") && !keys.has("outcome")) continue;
+        if (keys.has("tbExact") && !keys.has("tbWinner")) continue;
+        const sum = sel.reduce((s, x) => s + x.pts, 0);
+        if (Math.abs(sum - pts) > 0.001) continue;
+        const tbCount = sel.filter((s) => s.tb).length;
+        const rank = [tbCount, sel.length, keys.has("exact") ? 0 : 1];
+        if (!best || cmp(rank, best.rank) < 0) best = { sel, rank };
+      }
+      chips = best
+        ? best.sel.map((s) => ({ label: s.label, cls: s.cls, pts: s.pts }))
+        : [{ label: "Awarded", cls: "pb-ok", pts }];
+    }
+    return chips
+      .map(
+        (c) =>
+          `<span class="pb-chip ${c.cls}">${esc(c.label)}${c.pts != null ? ` <strong>+${c.pts}</strong>` : ""}</span>`,
+      )
+      .join(" ");
+  };
+
+  // Columns for the paginated/searchable history table.
+  const columns = [
+    {
+      label: "Match",
+      value: (r) => r.m.matchNumber ?? r.m.id,
+      numeric: true,
+      render: (r) =>
+        `<strong>#${esc(String(r.m.matchNumber ?? r.m.id))}</strong> ${esc(r.m.teamA)} v ${esc(r.m.teamB)}`,
+    },
+    {
+      label: "Prediction",
+      value: (r) => r.pred.value || "",
+      render: (r) =>
+        r.pred.value
+          ? `<code>${esc(r.pred.value)}</code>${r.pred.tiebreaker ? ` <span class="muted">(${esc(r.pred.tiebreaker)})</span>` : ""}`
+          : "—",
+    },
+    {
+      label: "Result",
+      value: (r) => r.m.result || "",
+      render: (r) =>
+        r.m.status === "resolved" && r.m.result
+          ? `<code>${esc(r.m.result)}</code>${r.m.tiebreakerResult ? ` <span class="muted">(${esc(r.m.tiebreakerResult)} pens)</span>` : ""}`
+          : `<span class="muted">${esc(r.m.status || "—")}</span>`,
+    },
+    {
+      label: "Breakdown",
+      value: (r) => Number(r.pred.points) || 0,
+      render: (r) => breakdown(r.m, r.pred),
+    },
+    {
+      label: "Pts",
+      numeric: true,
+      value: (r) => Number(r.pred.points) || 0,
+      render: (r) => {
+        const pts = Number(r.pred.points) || 0;
+        const color = pts > 0 ? "var(--green)" : "var(--muted)";
+        return `<span style="color:${color}; font-weight:700;">${pts}</span>`;
+      },
+    },
+  ];
+
+  const chip = (label, value) =>
+    `<span class="ps-chip" style="display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border:1px solid var(--line); border-radius:999px; background:var(--panel-2); font-size:13px;"><strong>${esc(String(value))}</strong> ${esc(label)}</span>`;
+  const chips = [
+    chip("pts", player.points ?? 0),
+    chip("predictions", player.predictions ?? 0),
+    chip("exact", player.exact ?? 0),
+    chip("near", player.near ?? 0),
+    chip("hits", player.hits ?? 0),
+  ].join("");
+
+  body.innerHTML = `<div style="padding:20px;">
+    <h2 style="margin:0 0 8px;">${esc(player.name)} — Prediction History</h2>
+    <div class="ps-chips" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">${chips}</div>
+    <div id="predictor-history-table"></div>
+  </div>`;
+
+  const tableHost = body.querySelector("#predictor-history-table");
+  if (!entries.length) {
+    tableHost.innerHTML = `<p style="color:var(--muted)"><em>No revealed predictions yet.</em></p>`;
+  } else {
+    const table = paginatedStandingsTable(entries, columns, {
+      className: "data-table standings-table",
+      emptyText: "No matching predictions.",
+      searchValue: (r) =>
+        `#${r.m.matchNumber ?? r.m.id} ${r.m.teamA} ${r.m.teamB}`,
+      searchPlaceholder: "Search match or team…",
+      defaultSortIndex: 0,
+      pageSizes: [10, 20, 50, 100],
+      defaultPageSize: 20,
+    });
+    tableHost.append(table);
+  }
+
+  const dialog = modal.querySelector(".modal");
+  if (dialog) {
+    dialog.classList.remove("modal--narrow");
+    dialog.classList.add("modal--wide");
+  }
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
 }
 
 /* ---- Tab + sub-tab switching and the dynamic navbar ---------------------- */

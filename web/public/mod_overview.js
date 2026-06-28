@@ -5,6 +5,7 @@ import {
   renderTournamentSummary,
   setupTournamentPicker,
 } from "./mod_tournament.js";
+import { openPredictorHistory } from "./mod_analytics.js";
 import { appState } from "./mod_state.js";
 
 export function blockHTML(p) {
@@ -126,7 +127,7 @@ export function renderBlock(p, block) {
   renderScorelines(p, block.predictedScorelines);
   renderSpotlight(`${p}-best-body`, block.bestPredictor, "lowest");
   renderSpotlight(`${p}-worst-body`, block.worstPredictor, "highest");
-  renderPlayers(p, block.players);
+  renderPlayers(p, block.players, block.matchList || []);
   renderMatchExplorer(p, block.matchList || []);
 }
 
@@ -467,7 +468,7 @@ export function renderSpotlight(bodyId, player, kind) {
   }
 }
 
-export function renderPlayers(p, rows) {
+export function renderPlayers(p, rows, matchList) {
   const container = document.getElementById(`${p}-players-table`);
   container.innerHTML = "";
   const columns = [
@@ -477,7 +478,12 @@ export function renderPlayers(p, rows) {
       value: (r) => r.rank,
       render: (r) => rankMedal(r.rank),
     },
-    { label: "Player", value: (r) => r.name, render: (r) => esc(r.name) },
+    {
+      label: "Player",
+      value: (r) => r.name,
+      render: (r) =>
+        `<button class="predictor-btn" data-player-id="${esc(String(r.id))}" style="border:none;background:none;color:var(--link);cursor:pointer;text-decoration:underline;padding:0;font-size:inherit;font-family:inherit">${esc(r.name)}</button>`,
+    },
     {
       label: "Points",
       numeric: true,
@@ -528,6 +534,14 @@ export function renderPlayers(p, rows) {
       emptyText: "No players yet.",
     }),
   );
+
+  // Clicking a player opens their match-by-match prediction history.
+  container.querySelectorAll(".predictor-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const player = rows.find((r) => String(r.id) === btn.dataset.playerId);
+      if (player) openPredictorHistory(player, { matchList: matchList || [] });
+    });
+  });
 }
 
 /* ---- Match explorer (team search + open / upcoming / resolved + modal) ---- */

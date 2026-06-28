@@ -2699,6 +2699,43 @@ body.modal-open {
 .modal--narrow {
   width: min(440px, 100%);
 }
+.modal--wide {
+  width: min(960px, 100%);
+}
+/* Prediction point-breakdown chips (predictor history modal). */
+.pb-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.pb-ok {
+  border-color: rgba(80, 200, 120, 0.5);
+  background: rgba(80, 200, 120, 0.12);
+}
+.pb-exact {
+  border-color: rgba(255, 196, 0, 0.6);
+  background: rgba(255, 196, 0, 0.14);
+}
+.pb-near {
+  border-color: rgba(120, 170, 255, 0.55);
+  background: rgba(120, 170, 255, 0.14);
+}
+.pb-bonus {
+  border-color: rgba(200, 120, 255, 0.55);
+  background: rgba(200, 120, 255, 0.14);
+}
+.pb-miss {
+  color: var(--muted);
+}
+.pb-pending {
+  color: var(--muted);
+  font-style: italic;
+}
 .ps-head {
   display: flex;
   align-items: center;
