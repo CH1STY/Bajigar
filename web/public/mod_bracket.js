@@ -1,6 +1,8 @@
 import { el, esc, parseScore } from "./mod_core.js";
 import {
   countdownChipHtml,
+  matchBucket,
+  ongoingChipHtml,
   openBracketProjectionModal,
   openMatchModal,
 } from "./mod_matches.js";
@@ -459,21 +461,25 @@ export function buildBracketMatch(t, num, byNumber, thirdByMatch) {
 
   // Use the prediction-closing time once the match exists; otherwise the
   // official scheduled kick-off. Both are rendered in GMT+6 (Dhaka) time.
+  const ongoing = info.match && matchBucket(info.match) === "closed";
   const dateText = info.match
     ? fmtDhaka(info.match.endTime)
     : fmtDhaka(WC_SCHEDULE[num]);
   const dateTitle = info.match
     ? "Predictions close (GMT+6 Dhaka)"
     : "Scheduled kick-off (GMT+6 Dhaka)";
-  const dateLine = dateText
-    ? `<div class="bx-date" title="${dateTitle}">${esc(dateText)}</div>`
-    : "";
+  // In-progress match → show the "currently ongoing" blip instead of the date.
+  const dateLine = ongoing
+    ? `<div class="bx-ongoing">${ongoingChipHtml()}</div>`
+    : dateText
+      ? `<div class="bx-date" title="${dateTitle}">${esc(dateText)}</div>`
+      : "";
 
   // Live countdown to kick-off. Uses the match's own time once it exists,
   // otherwise the scheduled bracket time. Empty once the match has started.
-  const cdChip = countdownChipHtml(
-    info.match ? info.match.endTime : WC_SCHEDULE[num],
-  );
+  const cdChip = ongoing
+    ? ""
+    : countdownChipHtml(info.match ? info.match.endTime : WC_SCHEDULE[num]);
   const cdLine = cdChip ? `<div class="bx-countdown">${cdChip}</div>` : "";
 
   // Round of 32 only: a visible info badge reveals how each side's team is

@@ -85,6 +85,14 @@ export function countdownChipHtml(value) {
   return `<span class="mi-countdown" data-countdown-end="${epoch}">${countdownText(epoch)}</span>`;
 }
 
+/**
+ * HTML for an "ongoing" status blip (pulsing dot, like a server-online light)
+ * shown on in-progress matches — predictions are closed but no result yet.
+ */
+export function ongoingChipHtml() {
+  return `<span class="mi-ongoing"><span class="mi-ongoing-dot"></span>Currently ongoing</span>`;
+}
+
 // One shared ticker keeps every rendered countdown chip up to date each second.
 let countdownTicker = null;
 export function startCountdownTicker() {
@@ -161,6 +169,11 @@ export function renderMatchColumn(p, key, matches) {
   for (const m of matches) {
     const item = el("button", { className: "match-item", type: "button" });
     const showCountdown = key === "open" || key === "upcoming";
+    const statusChip = showCountdown
+      ? countdownChipHtml(m.endTime)
+      : key === "closed"
+        ? ongoingChipHtml()
+        : "";
     item.innerHTML = `
       <span class="mi-id">#${m.matchNumber ?? m.id}</span>
       <span class="mi-dbid" title="Database id">id ${m.id}</span>
@@ -179,7 +192,7 @@ export function renderMatchColumn(p, key, matches) {
         }
         <span class="mi-picks">${m.predictionCount} pick${m.predictionCount === 1 ? "" : "s"}</span>
       </span>
-      ${showCountdown ? countdownChipHtml(m.endTime) : ""}`;
+      ${statusChip}`;
     item.addEventListener("click", () => openMatchModal(m, p));
     listEl.append(item);
   }
@@ -397,6 +410,11 @@ export function renderMatchDetail(container, m, chartId, p) {
       cd.innerHTML = chip;
       container.append(cd);
     }
+  } else if (matchBucket(m) === "closed") {
+    // In-progress match (predictions closed, no result yet) → ongoing blip.
+    const og = el("div", { className: "md-countdown" });
+    og.innerHTML = ongoingChipHtml();
+    container.append(og);
   }
 
   // For matches that haven't been played yet (Upcoming) or are still taking
