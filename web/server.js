@@ -32,6 +32,9 @@ const PORT = Number(process.env.WEB_PORT) || 2026;
 const publicDir = path.join(__dirname, "public");
 const MAX_UPLOAD_BYTES = 1024 * 1024; // 1 MB upload cap
 
+// Path to the live SQLite database file (used by the sysadmin DB download).
+const DB_FILE_PATH = path.join(__dirname, "..", "data", "sports.db");
+
 // The admin upload feature is only usable when explicitly enabled AND a
 // password is configured. A blank password never matches.
 const adminUploadReady = () =>
@@ -371,6 +374,71 @@ async function handleRedeploy(req, res) {
   });
 }
 
+// POST /api/admin/db-download — sysadmin-password-gated database snapshot.
+// Validates the password, flushes the WAL into the main file, then streams the
+// SQLite database as a download so the production DB can be tested locally.
+async function handleDbDownload(req, res) {
+  // Behave as if the route doesn't exist when the feature is off.
+  if (!redeployReady()) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not found");
+    return;
+  }
+  let password = req.headers["x-sysadmin-password"];
+  if (password == null) {
+    try {
+      const body = await readBody(req, 4096);
+      password = body ? (JSON.parse(body).password ?? "") : "";
+    } catch {
+      password = "";
+    }
+  }
+  if (!sysadminPasswordMatches(password)) {
+    sendJson(res, 401, { error: "Incorrect sysadmin password." });
+    return;
+  }
+  if (!fs.existsSync(DB_FILE_PATH)) {
+    sendJson(res, 500, { error: "Database file is missing on the server." });
+    return;
+  }
+
+  // Flush the write-ahead log into the main db file so the snapshot we send is
+  // complete and self-contained (no separate -wal needed).
+  try {
+    const db = require("../db/database");
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  } catch (err) {
+    console.error("DB checkpoint before download failed:", err);
+    // Continue — the snapshot is still usable, just possibly missing the most
+    // recent uncheckpointed writes.
+  }
+
+  let stat;
+  try {
+    stat = fs.statSync(DB_FILE_PATH);
+  } catch (err) {
+    console.error("DB stat before download failed:", err);
+    sendJson(res, 500, { error: "Could not read the database file." });
+    return;
+  }
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  res.writeHead(200, {
+    "Content-Type": "application/octet-stream",
+    "Content-Disposition": `attachment; filename="sports-${stamp}.db"`,
+    "Content-Length": stat.size,
+    "Cache-Control": "no-store",
+  });
+
+  const stream = fs.createReadStream(DB_FILE_PATH);
+  stream.on("error", (err) => {
+    console.error("DB download stream error:", err);
+    if (!res.headersSent) sendJson(res, 500, { error: "Download failed." });
+    else res.destroy();
+  });
+  stream.pipe(res);
+}
+
 async function handleStats(res) {
   try {
     const ids = getDistinctUserIds();
@@ -473,6 +541,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && pathname === "/api/admin/redeploy") {
     handleRedeploy(req, res);
+    return;
+  }
+  if (req.method === "POST" && pathname === "/api/admin/db-download") {
+    handleDbDownload(req, res);
     return;
   }
   if (req.method === "POST" && pathname === "/api/admin/login") {

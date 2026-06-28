@@ -173,6 +173,27 @@
         </p>
         <div id="status" class="status"></div>
       </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="grow">
+            <label for="dl-pw">Sysadmin password</label>
+            <input
+              id="dl-pw"
+              type="password"
+              autocomplete="off"
+              placeholder="Enter the sysadmin password"
+            />
+          </div>
+          <button id="dl" type="button">Download database</button>
+        </div>
+        <p class="warn">
+          ⬇️ Downloads a snapshot of the production SQLite database
+          (<code>sports.db</code>) so you can test locally. Handle the file
+          securely — it contains all data.
+        </p>
+        <div id="dl-status" class="status"></div>
+      </div>
     </div>
 
     <script>
@@ -241,6 +262,73 @@
       pw.addEventListener("keydown", (e) => {
         if (e.key === "Enter") redeploy();
       });
+
+      // ---- Database download ----
+      const dlPw = document.getElementById("dl-pw");
+      const dl = document.getElementById("dl");
+      const dlStatus = document.getElementById("dl-status");
+
+      function setDlStatus(kind, msg) {
+        dlStatus.className = "status show " + kind;
+        dlStatus.textContent = msg;
+      }
+
+      async function downloadDb() {
+        const password = dlPw.value;
+        if (!password) {
+          setDlStatus("err", "Enter the sysadmin password first.");
+          dlPw.focus();
+          return;
+        }
+        dl.disabled = true;
+        setDlStatus("info", "Preparing database snapshot…");
+        try {
+          const res = await fetch("/api/admin/db-download", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+          });
+          if (!res.ok) {
+            let data = {};
+            try {
+              data = await res.json();
+            } catch {
+              /* non-JSON error */
+            }
+            setDlStatus(
+              "err",
+              data.error || "Download failed (HTTP " + res.status + ").",
+            );
+            dl.disabled = false;
+            return;
+          }
+          const blob = await res.blob();
+          // Derive the filename from the response header when present.
+          const disp = res.headers.get("Content-Disposition") || "";
+          const match = disp.match(/filename="?([^"]+)"?/i);
+          const filename = match ? match[1] : "sports.db";
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          setDlStatus("ok", "Downloaded " + filename + ".");
+          dlPw.value = "";
+          dl.disabled = false;
+        } catch (err) {
+          setDlStatus("err", "Download failed: " + (err.message || err));
+          dl.disabled = false;
+        }
+      }
+
+      dl.addEventListener("click", downloadDb);
+      dlPw.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") downloadDb();
+      });
     </script>
   </body>
 </html>
+
