@@ -35,6 +35,70 @@ export function fmtTime(epoch) {
   });
 }
 
+/**
+ * Normalise a time value (epoch ms number, numeric string, or ISO date string)
+ * into epoch milliseconds. Returns NaN when it can't be parsed.
+ */
+function toEpoch(value) {
+  if (value == null) return NaN;
+  if (typeof value === "number") return value;
+  const n = Number(value);
+  if (Number.isFinite(n)) return n;
+  const d = new Date(value).getTime();
+  return Number.isNaN(d) ? NaN : d;
+}
+
+/**
+ * Human-readable remaining time from now until `value` (epoch ms or ISO date).
+ * Returns e.g. "2d 3h", "3h 15m", "12m 04s" or null when the time has passed
+ * or is invalid.
+ */
+export function fmtCountdown(value) {
+  const epoch = toEpoch(value);
+  if (!Number.isFinite(epoch)) return null;
+  const diff = epoch - Date.now();
+  if (diff <= 0) return null;
+  const sec = Math.floor(diff / 1000);
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  // 1 day or more: keep it coarse (days + hours). Under a day: count all the
+  // way down to seconds so the chip visibly ticks every second.
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0)
+    return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+
+/** Text for a countdown chip: "Match starts in …" or a fallback once it's due. */
+function countdownText(epoch) {
+  const left = fmtCountdown(epoch);
+  return left ? `⏳ Match starts in ${left}` : "⏳ Match starting now";
+}
+
+/** HTML for a live countdown chip; empty string when there's no future time. */
+export function countdownChipHtml(value) {
+  const epoch = toEpoch(value);
+  if (!Number.isFinite(epoch) || epoch - Date.now() <= 0) return "";
+  return `<span class="mi-countdown" data-countdown-end="${epoch}">${countdownText(epoch)}</span>`;
+}
+
+// One shared ticker keeps every rendered countdown chip up to date each second.
+let countdownTicker = null;
+export function startCountdownTicker() {
+  if (countdownTicker) return;
+  const tick = () => {
+    for (const node of document.querySelectorAll("[data-countdown-end]")) {
+      node.textContent = countdownText(Number(node.dataset.countdownEnd));
+    }
+  };
+  tick();
+  countdownTicker = setInterval(tick, 1000);
+}
+startCountdownTicker();
+
 // Per-prefix cache of the match list so team search can re-filter client-side.
 export const matchExplorerData = {};
 
@@ -69,9 +133,14 @@ export function drawMatchColumns(p) {
   for (const m of filtered) buckets[matchBucket(m)].push(m);
   const byMatchNumber = (a, b) =>
     (b.matchNumber ?? b.id) - (a.matchNumber ?? a.id);
-  buckets.open.sort(byMatchNumber);
+  // Open/Upcoming: soonest first so the shortest countdown sits at the top.
+  // Matches without an end time fall to the bottom; ties break by match number.
+  const bySoonest = (a, b) =>
+    (a.endTime ?? Infinity) - (b.endTime ?? Infinity) ||
+    (a.matchNumber ?? a.id) - (b.matchNumber ?? b.id);
+  buckets.open.sort(bySoonest);
   buckets.closed.sort(byMatchNumber);
-  buckets.upcoming.sort(byMatchNumber);
+  buckets.upcoming.sort(bySoonest);
   buckets.resolved.sort(byMatchNumber);
   renderMatchColumn(p, "open", buckets.open);
   renderMatchColumn(p, "closed", buckets.closed);
@@ -91,6 +160,7 @@ export function renderMatchColumn(p, key, matches) {
   }
   for (const m of matches) {
     const item = el("button", { className: "match-item", type: "button" });
+    const showCountdown = key === "open" || key === "upcoming";
     item.innerHTML = `
       <span class="mi-id">#${m.matchNumber ?? m.id}</span>
       <span class="mi-dbid" title="Database id">id ${m.id}</span>
@@ -108,7 +178,8 @@ export function renderMatchColumn(p, key, matches) {
             : ""
         }
         <span class="mi-picks">${m.predictionCount} pick${m.predictionCount === 1 ? "" : "s"}</span>
-      </span>`;
+      </span>
+      ${showCountdown ? countdownChipHtml(m.endTime) : ""}`;
     item.addEventListener("click", () => openMatchModal(m, p));
     listEl.append(item);
   }
@@ -267,6 +338,11 @@ export function openBracketProjectionModal(t, num, info) {
         <span class="mi-state">${esc(roundName(num))} · Match ${num}</span>
         ${sched ? `<span class="md-result">Scheduled: <strong>${esc(sched)}</strong> (GMT+6)</span>` : ""}
       </div>
+      ${
+        countdownChipHtml(WC_SCHEDULE[num])
+          ? `<div class="md-countdown">${countdownChipHtml(WC_SCHEDULE[num])}</div>`
+          : ""
+      }
     </div>
     <div class="proj-grid">
       ${sideHtml(slots[0], info.a)}
@@ -311,6 +387,17 @@ export function renderMatchDetail(container, m, chartId, p) {
         : ""
     }`;
   container.append(head);
+
+  // For Upcoming/Open matches, surface a live human-readable countdown to the
+  // moment the match starts (the prediction deadline / kick-off time).
+  if ((m.state === "open" || m.state === "pending") && m.endTime) {
+    const chip = countdownChipHtml(m.endTime);
+    if (chip) {
+      const cd = el("div", { className: "md-countdown" });
+      cd.innerHTML = chip;
+      container.append(cd);
+    }
+  }
 
   // For matches that haven't been played yet (Upcoming) or are still taking
   // picks (Open), surface how each side has fared so far in this tournament.

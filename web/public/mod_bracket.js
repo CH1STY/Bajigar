@@ -1,5 +1,9 @@
 import { el, esc, parseScore } from "./mod_core.js";
-import { openBracketProjectionModal, openMatchModal } from "./mod_matches.js";
+import {
+  countdownChipHtml,
+  openBracketProjectionModal,
+  openMatchModal,
+} from "./mod_matches.js";
 import { render } from "./mod_overview.js";
 import { sortableTable } from "./mod_tables.js";
 import { computeLeagueTable } from "./mod_tournament.js";
@@ -465,6 +469,13 @@ export function buildBracketMatch(t, num, byNumber, thirdByMatch) {
     ? `<div class="bx-date" title="${dateTitle}">${esc(dateText)}</div>`
     : "";
 
+  // Live countdown to kick-off. Uses the match's own time once it exists,
+  // otherwise the scheduled bracket time. Empty once the match has started.
+  const cdChip = countdownChipHtml(
+    info.match ? info.match.endTime : WC_SCHEDULE[num],
+  );
+  const cdLine = cdChip ? `<div class="bx-countdown">${cdChip}</div>` : "";
+
   // Round of 32 only: a visible info badge reveals how each side's team is
   // determined (group winners / runners-up / best third-placed sides), plus the
   // origin of the assigned third-placed team and whether it is final.
@@ -501,6 +512,7 @@ export function buildBracketMatch(t, num, byNumber, thirdByMatch) {
   box.innerHTML = `
     <div class="bx-num">Match ${num}${infoBadge}</div>
     ${dateLine}
+    ${cdLine}
     ${teamRow(info.a)}
     ${teamRow(info.b)}`;
 
