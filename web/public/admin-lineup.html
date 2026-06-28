@@ -1028,7 +1028,7 @@
             number = Number(p.jerseyNumber);
           const obj = {
             number,
-            name: p.shortName || p.name || "",
+            name: p.name || p.shortName || "",
             pos: sofaPos(it.position || p.position),
           };
           const r = parseFloat(st.rating);
