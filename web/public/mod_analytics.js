@@ -384,42 +384,75 @@ export async function renderPlayerStandings(t) {
     }
   }
 
-  // Spotlights.
-  const byScore = players.slice().sort((a, b) => b.score - a.score);
-  const top = byScore[0];
-  if (pott && top) {
-    const disc = `<span class="ps-disc"${discStyle(top.color)}>${esc(top.number != null ? String(top.number) : (top.name || "?").charAt(0))}</span>`;
-    const bits = [];
-    if (top.goals) bits.push(`${top.goals} ⚽`);
-    if (top.assists) bits.push(`${top.assists} 🅰️`);
-    if (top.motm) bits.push(`${top.motm} ⭐`);
-    if (top.avg != null) bits.push(`${top.avg.toFixed(2)} avg`);
-    pott.innerHTML = `
-      <div class="ps-spot">
-        ${disc}
-        <div class="ps-spot-main">
-          <div class="name">${esc(top.name)} <span class="ps-team">${esc(top.team)}</span></div>
-          <div class="stat">${bits.join(" · ") || "—"} · ${top.apps} app${top.apps === 1 ? "" : "s"}</div>
-        </div>
-      </div>`;
-  }
-
-  // Best single-match performance across all players.
-  let bestPerf = null;
-  for (const r of players) {
-    if (r.best && (!bestPerf || r.best.rating > bestPerf.best.rating)) {
-      bestPerf = r;
+  // Spotlights — rendered as ranked lists rather than a single name.
+  // Player of the Tournament: highest composite score first, breaking ties by
+  // appearances and then average match rating.
+  const byScore = players.slice().sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.apps !== a.apps) return b.apps - a.apps;
+    return (b.avg ?? 0) - (a.avg ?? 0);
+  });
+  if (pott) {
+    const topN = byScore.slice(0, 5);
+    if (!topN.length) {
+      pott.innerHTML = '<div class="empty">No data yet</div>';
+    } else {
+      pott.innerHTML = topN
+        .map((r, i) => {
+          const disc = `<span class="ps-disc"${discStyle(r.color)}>${esc(r.number != null ? String(r.number) : (r.name || "?").charAt(0))}</span>`;
+          const bits = [];
+          if (r.goals) bits.push(`${r.goals} ⚽`);
+          if (r.assists) bits.push(`${r.assists} 🅰️`);
+          if (r.motm) bits.push(`${r.motm} ⭐`);
+          if (r.avg != null) bits.push(`${r.avg.toFixed(2)} avg`);
+          return `<div class="ps-spot ps-spot-row">
+            <span class="ps-spot-rank">${rankMedal(i + 1)}</span>
+            ${disc}
+            <div class="ps-spot-main">
+              <div class="name">${esc(r.name)} <span class="ps-team">${esc(r.team)}</span></div>
+              <div class="stat">${bits.join(" · ") || "—"} · ${r.apps} app${r.apps === 1 ? "" : "s"}</div>
+            </div>
+          </div>`;
+        })
+        .join("");
     }
   }
-  if (best && bestPerf) {
-    const b = bestPerf.best;
-    const extra = [];
-    if (b.goals) extra.push(`${b.goals} ⚽`);
-    if (b.assists) extra.push(`${b.assists} 🅰️`);
-    if (b.motm) extra.push("⭐ MOTM");
-    best.innerHTML = `
-      <div class="name">${esc(bestPerf.name)} <span class="ps-team">${esc(bestPerf.team)}</span></div>
-      <div class="stat"><strong class="ps-rating ${ratingClass(b.rating)}">${b.rating.toFixed(1)}</strong> vs ${esc(b.opponent)}${extra.length ? ` · ${extra.join(" · ")}` : ""}</div>`;
+
+  // Best individual performances: highest single-match rating first, breaking
+  // ties by goals + assists in that match and then total appearances.
+  const perfList = players
+    .filter((r) => r.best)
+    .sort((a, b) => {
+      if (b.best.rating !== a.best.rating) return b.best.rating - a.best.rating;
+      const aga = a.best.goals + a.best.assists;
+      const bga = b.best.goals + b.best.assists;
+      if (bga !== aga) return bga - aga;
+      return b.apps - a.apps;
+    })
+    .slice(0, 5);
+  if (best) {
+    if (!perfList.length) {
+      best.innerHTML = '<div class="empty">No data yet</div>';
+    } else {
+      best.innerHTML = perfList
+        .map((r, i) => {
+          const b = r.best;
+          const disc = `<span class="ps-disc"${discStyle(r.color)}>${esc(r.number != null ? String(r.number) : (r.name || "?").charAt(0))}</span>`;
+          const extra = [];
+          if (b.goals) extra.push(`${b.goals} ⚽`);
+          if (b.assists) extra.push(`${b.assists} 🅰️`);
+          if (b.motm) extra.push("⭐ MOTM");
+          return `<div class="ps-spot ps-spot-row">
+            <span class="ps-spot-rank">${rankMedal(i + 1)}</span>
+            ${disc}
+            <div class="ps-spot-main">
+              <div class="name">${esc(r.name)} <span class="ps-team">${esc(r.team)}</span></div>
+              <div class="stat"><strong class="ps-rating ${ratingClass(b.rating)}">${b.rating.toFixed(1)}</strong> vs ${esc(b.opponent)}${extra.length ? ` · ${extra.join(" · ")}` : ""}</div>
+            </div>
+          </div>`;
+        })
+        .join("");
+    }
   }
 
   // Charts.

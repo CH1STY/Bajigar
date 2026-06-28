@@ -95,7 +95,11 @@ document.querySelectorAll(".nav-jump").forEach((btn) => {
       if (subtabBtn) subtabBtn.click();
       setTimeout(() => {
         const node = document.getElementById("tn-player-table");
-        if (node) node.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (!node) return;
+        // Scroll a bit past the table's top so its header/controls clear the
+        // sticky nav and the rows are properly in view.
+        const y = node.getBoundingClientRect().top + window.scrollY + 160;
+        window.scrollTo({ top: y, behavior: "smooth" });
       }, 100);
       return;
     }

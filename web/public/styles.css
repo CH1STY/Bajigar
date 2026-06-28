@@ -2442,6 +2442,19 @@ body.modal-open {
   align-items: center;
   gap: 12px;
 }
+.ps-spot-row {
+  padding: 6px 0;
+}
+.ps-spot-row + .ps-spot-row {
+  border-top: 1px solid var(--line);
+}
+.ps-spot-rank {
+  flex: none;
+  min-width: 26px;
+  text-align: center;
+  font-weight: 800;
+  color: var(--muted);
+}
 .ps-disc {
   display: flex;
   align-items: center;
