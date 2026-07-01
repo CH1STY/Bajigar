@@ -1,6 +1,15 @@
-import { charts, destroy, el, esc, PALETTE } from "./mod_core.js";
-import { openMatchModal, renderMatchExplorer } from "./mod_matches.js";
-import { rankMedal, sortableTable } from "./mod_tables.js";
+import {
+  apiGet,
+  charts,
+  destroy,
+  el,
+  esc,
+  PALETTE,
+  scopeQuery,
+  skeletonFill,
+} from "./mod_core.js";
+import { loadMatchExplorer, openMatchById } from "./mod_matches.js";
+import { rankMedal, serverPaginatedTable } from "./mod_tables.js";
 import {
   renderTournamentSummary,
   setupTournamentPicker,
@@ -88,12 +97,19 @@ export async function load() {
   btn.disabled = true;
   btn.textContent = "Loading…";
   try {
-    const res = await fetch("/api/stats");
-    if (!res.ok) throw new Error("Request failed");
-    const data = await res.json();
-    render(data);
+    const meta = await apiGet("/api/meta");
+    appState.scoringConfig = meta.scoring || appState.scoringConfig;
     document.getElementById("updated").textContent =
-      "Updated " + new Date(data.generatedAt).toLocaleTimeString();
+      "Updated " + new Date(meta.generatedAt).toLocaleTimeString();
+
+    // Overview tab = global scope (same block shape as each tournament).
+    document.getElementById("ov-block").innerHTML = blockHTML("ov");
+    loadBlockSections("ov", null);
+
+    // Tournaments tab: summary + picker. Each tournament's sections load
+    // on demand when it is selected.
+    renderTournamentSummary(meta.tournaments || []);
+    setupTournamentPicker(meta.tournaments || [], meta.defaultTournamentId);
   } catch (err) {
     document.getElementById("ov-block").innerHTML =
       '<div class="empty">Could not load analytics. Is the server running?</div>';
@@ -104,31 +120,73 @@ export async function load() {
   }
 }
 
-export function render(data) {
-  appState.scoringConfig = data.scoring || appState.scoringConfig;
-  // Overview tab = global block (same shape as each tournament block).
-  document.getElementById("ov-block").innerHTML = blockHTML("ov");
-  renderBlock("ov", data);
-
-  // Tournaments tab.
-  renderTournamentSummary(data.tournaments || []);
-  setupTournamentPicker(data.tournaments || [], data.defaultTournamentId);
+/** Fill a block's KPI grid with skeleton placeholders while it loads. */
+function skeletonKpis(p) {
+  const wrap = document.getElementById(`${p}-kpis`);
+  if (!wrap) return;
+  wrap.innerHTML = Array.from(
+    { length: 6 },
+    () => `<div class="kpi"><div class="skeleton sk-kpi"></div></div>`,
+  ).join("");
 }
 
-/** Render one analytics block into the elements prefixed by `p`. */
-export function renderBlock(p, block) {
-  renderKpis(p, block.overview);
-  renderHiddenNote(p, block.overview);
-  renderTopScorers(p, block.topScorers);
-  renderOutcome(p, block.outcomeBreakdown);
-  renderVolume(p, block.predictionVolume, block.matchList);
-  renderAccuracy(p, block.avgGoalDiff);
-  renderNear(p, block.nearMisses);
-  renderScorelines(p, block.predictedScorelines);
-  renderSpotlight(`${p}-best-body`, block.bestPredictor, "lowest");
-  renderSpotlight(`${p}-worst-body`, block.worstPredictor, "highest");
-  renderPlayers(p, block.players, block.matchList || []);
-  renderMatchExplorer(p, block.matchList || []);
+/**
+ * Load every section of one analytics block independently. Each section shows a
+ * skeleton, fetches its own lightweight slice from the API and renders when it
+ * arrives — no single request carries the whole payload.
+ * @param {"ov"|"tn"} p
+ * @param {number|null} scope - tournament id, or null for the global overview.
+ */
+export function loadBlockSections(p, scope) {
+  const q = scopeQuery(scope);
+
+  skeletonKpis(p);
+  apiGet(`/api/section/kpis${q}`)
+    .then((o) => {
+      renderKpis(p, o);
+      renderHiddenNote(p, o);
+    })
+    .catch(() => {});
+
+  const chartSection = (id, path, draw) => {
+    emptyCanvas(id, "Loading…");
+    apiGet(path)
+      .then(draw)
+      .catch(() => emptyCanvas(id, "Couldn't load this chart"));
+  };
+
+  chartSection(`${p}-chart-top`, `/api/section/top-scorers${q}`, (r) =>
+    renderTopScorers(p, r),
+  );
+  chartSection(`${p}-chart-outcome`, `/api/section/outcome${q}`, (r) =>
+    renderOutcome(p, r),
+  );
+  chartSection(`${p}-chart-accuracy`, `/api/section/accuracy${q}`, (r) =>
+    renderAccuracy(p, r),
+  );
+  chartSection(`${p}-chart-near`, `/api/section/near-misses${q}`, (r) =>
+    renderNear(p, r),
+  );
+  chartSection(`${p}-chart-scorelines`, `/api/section/scorelines${q}`, (r) =>
+    renderScorelines(p, r),
+  );
+
+  emptyCanvas(`${p}-chart-volume`, "Loading…");
+  apiGet(`/api/section/volume${q}`)
+    .then((rows) => renderVolume(p, rows, scope))
+    .catch(() => emptyCanvas(`${p}-chart-volume`, "Couldn't load this chart"));
+
+  skeletonFill(`${p}-best-body`, { count: 2 });
+  skeletonFill(`${p}-worst-body`, { count: 2 });
+  apiGet(`/api/section/spotlight${q}`)
+    .then((s) => {
+      renderSpotlight(`${p}-best-body`, s.best, "lowest");
+      renderSpotlight(`${p}-worst-body`, s.worst, "highest");
+    })
+    .catch(() => {});
+
+  renderPlayers(p, scope);
+  loadMatchExplorer(p, scope);
 }
 
 export function renderKpis(p, o) {
@@ -269,12 +327,8 @@ function gmtLabel() {
   return `GMT${sign}${h}${m ? ":" + String(m).padStart(2, "0") : ""}`;
 }
 
-// Map prefixes to their match lists so drawVolume can look up matches on click.
-const volumeMatches = {};
-
-export function renderVolume(p, rows, matches) {
+export function renderVolume(p, rows) {
   volumeData[p] = rows || [];
-  volumeMatches[p] = matches || [];
   const hint = document.getElementById(`${p}-volume-hint`);
   if (hint)
     hint.textContent = `picks per match · dates as “MMM D, HH:MM” (24h, ${gmtLabel()})`;
@@ -388,9 +442,8 @@ function drawVolume(p) {
         const dataIndex = activeElements[0].index;
         const row = rows[dataIndex];
         if (!row || !row.matchId) return;
-        const matches = volumeMatches[p] || [];
-        const match = matches.find((m) => (m.id ?? m.matchId) === row.matchId);
-        if (match) openMatchModal(match, p);
+        // Fetch the match's full detail on demand, then open the modal.
+        openMatchById(row.matchId, p);
       },
     },
   });
@@ -468,80 +521,73 @@ export function renderSpotlight(bodyId, player, kind) {
   }
 }
 
-export function renderPlayers(p, rows, matchList) {
+/**
+ * Returns a fetchPage(page, pageSize, search) function that pulls one page of
+ * the players standings for the given scope from the API.
+ * @param {number|null} scope
+ */
+export function playersFetchPage(scope) {
+  return (page, pageSize, search) => {
+    const params = new URLSearchParams();
+    if (scope != null) params.set("t", String(scope));
+    params.set("page", String(page));
+    params.set("pageSize", String(pageSize));
+    if (search) params.set("search", search);
+    return apiGet(`/api/section/players?${params.toString()}`);
+  };
+}
+
+/**
+ * Wire the "open predictor history" buttons inside a freshly rendered page of
+ * standings rows. `rows` are the page's player objects, `scope` the block scope.
+ */
+export function wirePredictorButtons(root, rows, scope) {
+  root.querySelectorAll(".predictor-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const player = rows.find((r) => String(r.id) === btn.dataset.playerId);
+      if (player) openPredictorHistory(player, scope);
+    });
+  });
+}
+
+export function renderPlayers(p, scope) {
   const container = document.getElementById(`${p}-players-table`);
+  if (!container) return;
   container.innerHTML = "";
   const columns = [
     {
       label: "#",
-      numeric: true,
-      value: (r) => r.rank,
       render: (r) => rankMedal(r.rank),
     },
     {
       label: "Player",
-      value: (r) => r.name,
       render: (r) =>
         `<button class="predictor-btn" data-player-id="${esc(String(r.id))}" style="border:none;background:none;color:var(--link);cursor:pointer;text-decoration:underline;padding:0;font-size:inherit;font-family:inherit">${esc(r.name)}</button>`,
     },
-    {
-      label: "Points",
-      numeric: true,
-      value: (r) => r.points,
-      render: (r) => `<strong>${r.points}</strong>`,
-    },
-    {
-      label: "Predictions",
-      numeric: true,
-      value: (r) => r.predictions,
-      render: (r) => r.predictions,
-    },
-    {
-      label: "Graded",
-      numeric: true,
-      value: (r) => r.gradedGames,
-      render: (r) => r.gradedGames,
-    },
+    { label: "Points", render: (r) => `<strong>${r.points}</strong>` },
+    { label: "Predictions", render: (r) => r.predictions },
+    { label: "Graded", render: (r) => r.gradedGames },
     {
       label: "Avg Goal Diff",
-      numeric: true,
-      value: (r) => r.avgDiff,
       render: (r) => (r.avgDiff == null ? "—" : r.avgDiff),
     },
-    {
-      label: "Exact",
-      numeric: true,
-      value: (r) => r.exact,
-      render: (r) => r.exact,
-    },
-    {
-      label: "Near",
-      numeric: true,
-      value: (r) => r.near,
-      render: (r) => r.near,
-    },
-    {
-      label: "Hits",
-      numeric: true,
-      value: (r) => r.hits,
-      render: (r) => (r.hits == null ? 0 : r.hits),
-    },
+    { label: "Exact", render: (r) => r.exact },
+    { label: "Near", render: (r) => r.near },
+    { label: "Hits", render: (r) => (r.hits == null ? 0 : r.hits) },
   ];
   container.append(
-    sortableTable(rows, columns, {
+    serverPaginatedTable({
+      columns,
       className: "data-table players-table",
       rowClass: (r) => (r.rank && r.rank <= 3 ? "top-rank" : ""),
       emptyText: "No players yet.",
+      searchPlaceholder: "Search player…",
+      pageSizes: [25, 50, 100],
+      defaultPageSize: 25,
+      fetchPage: playersFetchPage(scope),
+      onRows: (rows, tbody) => wirePredictorButtons(tbody, rows, scope),
     }),
   );
-
-  // Clicking a player opens their match-by-match prediction history.
-  container.querySelectorAll(".predictor-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const player = rows.find((r) => String(r.id) === btn.dataset.playerId);
-      if (player) openPredictorHistory(player, { matchList: matchList || [] });
-    });
-  });
 }
 
 /* ---- Match explorer (team search + open / upcoming / resolved + modal) ---- */

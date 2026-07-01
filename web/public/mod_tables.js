@@ -72,6 +72,171 @@ export function rankMedal(rank) {
 }
 
 /**
+ * A standings table whose rows come from the server one page at a time
+ * (true server-side pagination with page params). Shows a skeleton while each
+ * page loads, a name search box (debounced), a page-size selector and
+ * Prev/Next controls. Column shape matches sortableTable ({ label, render(r) });
+ * sorting is fixed to the server's ordering.
+ *
+ * @param {Object} opts
+ * @param {Array}  opts.columns
+ * @param {(page:number,pageSize:number,search:string)=>Promise<{items,total,page,pageSize,totalPages}>} opts.fetchPage
+ * @param {(rows:Array, tbody:HTMLElement)=>void} [opts.onRows] - post-render hook
+ * @returns {HTMLElement}
+ */
+export function serverPaginatedTable(opts) {
+  const pageSizes =
+    Array.isArray(opts.pageSizes) && opts.pageSizes.length
+      ? opts.pageSizes
+      : [25, 50, 100];
+  let pageSize = pageSizes.includes(opts.defaultPageSize)
+    ? opts.defaultPageSize
+    : pageSizes[0];
+  let page = 1;
+  let query = "";
+  let reqSeq = 0;
+  const nCols = opts.columns.length;
+
+  const wrap = document.createElement("div");
+  wrap.className = "ps-table-wrap";
+
+  // Controls: optional search + page size + result count.
+  const controls = document.createElement("div");
+  controls.className = "ps-controls";
+  const search = document.createElement("input");
+  search.type = "search";
+  search.className = "ps-search";
+  search.placeholder = opts.searchPlaceholder || "Search…";
+  const sizeLabel = document.createElement("label");
+  sizeLabel.className = "ps-pagesize";
+  sizeLabel.append(document.createTextNode("Per page "));
+  const sizeSel = document.createElement("select");
+  for (const n of pageSizes) {
+    const o = document.createElement("option");
+    o.value = String(n);
+    o.textContent = String(n);
+    sizeSel.append(o);
+  }
+  sizeSel.value = String(pageSize);
+  sizeLabel.append(sizeSel);
+  const count = document.createElement("span");
+  count.className = "ps-count";
+  if (opts.searchable !== false) controls.append(search);
+  controls.append(sizeLabel, count);
+
+  // Table.
+  const table = document.createElement("table");
+  if (opts.className) table.className = opts.className;
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  opts.columns.forEach((col) => {
+    const th = document.createElement("th");
+    th.textContent = col.label;
+    headRow.append(th);
+  });
+  thead.append(headRow);
+  table.append(thead);
+  const tbody = document.createElement("tbody");
+  table.append(tbody);
+
+  // Pager.
+  const pager = document.createElement("div");
+  pager.className = "ps-pager";
+  const prev = document.createElement("button");
+  prev.type = "button";
+  prev.className = "ps-page-btn";
+  prev.textContent = "‹ Prev";
+  const pageInfo = document.createElement("span");
+  pageInfo.className = "ps-page-info";
+  const next = document.createElement("button");
+  next.type = "button";
+  next.className = "ps-page-btn";
+  next.textContent = "Next ›";
+  pager.append(prev, pageInfo, next);
+
+  function showSkeleton() {
+    const rows = Math.min(pageSize, 8);
+    tbody.innerHTML = Array.from(
+      { length: rows },
+      () =>
+        `<tr class="sk-row"><td colspan="${nCols}"><span class="skeleton sk-line"></span></td></tr>`,
+    ).join("");
+  }
+
+  async function load() {
+    const seq = ++reqSeq;
+    showSkeleton();
+    prev.disabled = true;
+    next.disabled = true;
+    let data;
+    try {
+      data = await opts.fetchPage(page, pageSize, query.trim());
+    } catch {
+      if (seq !== reqSeq) return;
+      tbody.innerHTML = `<tr><td colspan="${nCols}" class="empty">Failed to load.</td></tr>`;
+      count.textContent = "";
+      pageInfo.textContent = "";
+      return;
+    }
+    if (seq !== reqSeq) return; // a newer request superseded this one
+    page = data.page;
+    pageSize = data.pageSize;
+    const items = data.items || [];
+    tbody.innerHTML = "";
+    if (!items.length) {
+      tbody.innerHTML = `<tr><td colspan="${nCols}" class="empty">${opts.emptyText || "No data."}</td></tr>`;
+    } else {
+      for (const r of items) {
+        const tr = document.createElement("tr");
+        const cls = opts.rowClass ? opts.rowClass(r) : "";
+        if (cls) tr.className = cls;
+        tr.innerHTML = opts.columns
+          .map((col) => `<td>${col.render(r)}</td>`)
+          .join("");
+        tbody.append(tr);
+      }
+    }
+    const total = data.total || 0;
+    const from = total ? (data.page - 1) * data.pageSize + 1 : 0;
+    const to = Math.min(data.page * data.pageSize, total);
+    count.textContent = `Showing ${from}–${to} of ${total}`;
+    pageInfo.textContent = `Page ${data.page} / ${data.totalPages}`;
+    prev.disabled = data.page <= 1;
+    next.disabled = data.page >= data.totalPages;
+    if (opts.onRows) opts.onRows(items, tbody);
+  }
+
+  let searchTimer = null;
+  search.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      query = search.value;
+      page = 1;
+      load();
+    }, 250);
+  });
+  sizeSel.addEventListener("change", () => {
+    pageSize = Number(sizeSel.value) || pageSizes[0];
+    page = 1;
+    load();
+  });
+  prev.addEventListener("click", () => {
+    if (page > 1) {
+      page -= 1;
+      load();
+    }
+  });
+  next.addEventListener("click", () => {
+    page += 1;
+    load();
+  });
+
+  wrap.append(controls, table, pager);
+  load();
+  return wrap;
+}
+
+/**
  * A standings table with a name search box, page-size control (50/100/200) and
  * prev/next pagination. Reuses the same column shape as sortableTable (each
  * column has { label, numeric?, value(r), render(r) }) and keeps clickable

@@ -1,17 +1,19 @@
-import {
-  openPredictorHistory,
-  renderPlayerStandings,
-  renderTeamAnalytics,
-} from "./mod_analytics.js";
+import { renderPlayerStandings, renderTeamAnalytics } from "./mod_analytics.js";
 import {
   buildLeagueTableEl,
   renderGroupedLeagueTables,
   renderKnockoutBracket,
 } from "./mod_bracket.js";
-import { el, esc, parseScore } from "./mod_core.js";
-import { blockHTML, render, renderBlock } from "./mod_overview.js";
+import { apiGet, el, esc, parseScore } from "./mod_core.js";
+import {
+  blockHTML,
+  loadBlockSections,
+  playersFetchPage,
+  wirePredictorButtons,
+} from "./mod_overview.js";
+import { loadMatchset } from "./mod_matches.js";
 import { appState } from "./mod_state.js";
-import { rankMedal, sortableTable } from "./mod_tables.js";
+import { rankMedal, serverPaginatedTable } from "./mod_tables.js";
 import { updateNav } from "./mod_ui.js";
 
 export function renderTournamentSummary(tournaments) {
@@ -52,6 +54,17 @@ export function renderTournamentSummary(tournaments) {
 export function renderTournamentLeaders(t) {
   const podium = document.getElementById("tournament-podium");
   podium.innerHTML = "";
+
+  // null topScorers = still loading → show placeholder podium bars.
+  if (t.topScorers == null) {
+    podium.innerHTML = [1, 0, 2]
+      .map(
+        (i) =>
+          `<div class="podium-spot place-${i + 1}"><div class="skeleton sk-line" style="height:60px;width:80px"></div></div>`,
+      )
+      .join("");
+    return;
+  }
 
   const rows = (t.topScorers || []).slice(0, 3);
   if (!rows.length) {
@@ -123,80 +136,72 @@ export function setupTournamentPicker(tournaments, defaultId) {
     block.dataset.ready = "1";
   }
 
-  const draw = () => {
+  const draw = async () => {
     const t = tournaments.find((x) => String(x.id) === select.value);
     if (!t) return;
     appState.currentTournament = t;
     statusPill.textContent = t.status;
     statusPill.className = `pill ${t.status === "active" ? "pill-active" : "pill-done"}`;
+    updateNav();
+
+    // Load every section of this tournament's block independently (KPIs,
+    // charts, players standings, match explorer) — each with its own skeleton.
+    loadBlockSections("tn", t.id);
+    // Standings table pages from the server, scoped to this tournament.
+    renderStandings(standings, t.id);
+
+    // The podium, team analytics, player standings and league/bracket views
+    // need the tournament's scorers and full match set, which aren't part of
+    // the lightweight meta payload — fetch them on demand.
+    renderTournamentLeaders({ topScorers: null }); // show skeleton/loading state
+    try {
+      const [top, matchset] = await Promise.all([
+        apiGet(`/api/section/top-scorers?t=${t.id}`),
+        loadMatchset("tn", t.id),
+      ]);
+      if (String(t.id) !== select.value) return; // selection changed mid-load
+      t.topScorers = top || [];
+      t.matchList = matchset || [];
+    } catch {
+      if (String(t.id) !== select.value) return;
+      t.topScorers = t.topScorers || [];
+      t.matchList = t.matchList || [];
+    }
     renderTournamentLeaders(t);
-    renderBlock("tn", t);
-    renderStandings(standings, t);
     renderTeamAnalytics(t);
     renderPlayerStandings(t);
-    updateNav();
   };
 
   select.onchange = draw;
   draw();
 }
 
-export function renderStandings(container, t) {
+export function renderStandings(container, scope) {
   container.innerHTML = "";
-  if (!t.players.length) {
-    container.innerHTML = '<div class="empty">No predictions yet.</div>';
-    return;
-  }
   const columns = [
-    {
-      label: "#",
-      numeric: true,
-      value: (r) => r.rank,
-      render: (r) => rankMedal(r.rank),
-    },
+    { label: "#", render: (r) => rankMedal(r.rank) },
     {
       label: "Player",
-      value: (r) => r.name,
       render: (r) =>
         `<button class="predictor-btn" data-player-id="${esc(String(r.id))}" style="border:none;background:none;color:var(--link);cursor:pointer;text-decoration:underline;padding:0;font-size:inherit;font-family:inherit">${esc(r.name)}</button>`,
     },
-    {
-      label: "Points",
-      numeric: true,
-      value: (r) => r.points,
-      render: (r) => `<strong>${r.points}</strong>`,
-    },
-    {
-      label: "Predictions",
-      numeric: true,
-      value: (r) => r.predictions,
-      render: (r) => r.predictions,
-    },
-    {
-      label: "Hits",
-      numeric: true,
-      value: (r) => r.hits,
-      render: (r) => (r.hits == null ? 0 : r.hits),
-    },
+    { label: "Points", render: (r) => `<strong>${r.points}</strong>` },
+    { label: "Predictions", render: (r) => r.predictions },
+    { label: "Hits", render: (r) => (r.hits == null ? 0 : r.hits) },
   ];
   container.append(
-    sortableTable(t.players, columns, {
+    serverPaginatedTable({
+      columns,
       className: "data-table standings-table",
-      rowClass: (r) => (r.rank <= 3 ? "top-rank" : ""),
+      rowClass: (r) => (r.rank && r.rank <= 3 ? "top-rank" : ""),
       emptyText: "No predictions yet.",
+      searchPlaceholder: "Search player…",
+      pageSizes: [25, 50, 100],
+      defaultPageSize: 25,
+      fetchPage: playersFetchPage(scope),
+      onRows: (rows, tbody) => wirePredictorButtons(tbody, rows, scope),
     }),
   );
-
-  // Clicking a player opens their match-by-match prediction history.
-  container.querySelectorAll(".predictor-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const player = t.players.find(
-        (r) => String(r.id) === btn.dataset.playerId,
-      );
-      if (player)
-        openPredictorHistory(player, { matchList: t.matchList || [] });
-    });
-  });
 }
 
 /* ---- Team Standings (real-time football league table) ----

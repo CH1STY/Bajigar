@@ -2,628 +2,91 @@
 // Serves a static dashboard and a JSON analytics API on port 2026.
 //
 // Usage: npm run web   (or: node web/server.js)
+//
+// This file is only the composition root: it wires the modular route handlers
+// (web/routes/*) that build on the shared helpers (web/lib/*) into a small
+// method+path dispatch table, then starts listening. All real logic lives in
+// those modules.
 
 require("dotenv").config();
 
 const http = require("http");
-const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
-const { spawn } = require("child_process");
-const { buildAnalytics, getDistinctUserIds } = require("./analytics");
-const { resolveMany } = require("./usernames");
 const {
-  getLineup,
-  getLineupsForMatches,
-  upsertLineup,
-  deleteLineup,
-  transaction,
-  listMatchesBrief,
-} = require("../db/queries");
-const { validatePayload } = require("./lineupImport");
-const {
+  PORT,
   LINEUP_UPLOAD_ENABLED,
-  LINEUP_ADMIN_PASSWORD,
   REDEPLOY_ENABLED,
-  SYSADMIN_PASSWORD,
-} = require("../config/config");
+  adminUploadReady,
+  redeployReady,
+} = require("./lib/config");
+const { serveStatic } = require("./lib/http");
+const sections = require("./routes/sections");
+const admin = require("./routes/admin");
+const sysadmin = require("./routes/sysadmin");
+const lineup = require("./routes/lineup");
+const pages = require("./routes/pages");
 
-const PORT = Number(process.env.WEB_PORT) || 2026;
-const publicDir = path.join(__dirname, "public");
-const MAX_UPLOAD_BYTES = 1024 * 1024; // 1 MB upload cap
+// Exact method+path routes. The value is (req, res) => void. Section endpoints
+// that only differ by which block slice they return share handleSection via a
+// tiny picker closure.
+const routes = {
+  "GET /api/meta": (req, res) => sections.handleMeta(res),
+  "GET /api/section/matches": sections.handleSectionMatches,
+  "GET /api/section/players": sections.handleSectionPlayers,
+  "GET /api/section/match": sections.handleSectionMatchDetail,
+  "GET /api/section/player-history": sections.handleSectionPlayerHistory,
+  // Full lightweight match set for the scope (no per-match predictions).
+  // Powers league tables, the knockout bracket, head-to-head history and the
+  // player-standings lineup lookups — all of which need every match.
+  "GET /api/section/matchset": (req, res) =>
+    sections.handleSection(req, res, (block) =>
+      block.matchList.map(({ predictions, distribution, ...rest }) => rest),
+    ),
+  "GET /api/section/kpis": (req, res) =>
+    sections.handleSection(req, res, (block) => block.overview),
+  "GET /api/section/top-scorers": (req, res) =>
+    sections.handleSection(req, res, (block) => block.topScorers),
+  "GET /api/section/outcome": (req, res) =>
+    sections.handleSection(req, res, (block) => block.outcomeBreakdown),
+  "GET /api/section/volume": (req, res) =>
+    sections.handleSection(req, res, (block) => block.predictionVolume),
+  "GET /api/section/accuracy": (req, res) =>
+    sections.handleSection(req, res, (block) => block.avgGoalDiff),
+  "GET /api/section/near-misses": (req, res) =>
+    sections.handleSection(req, res, (block) => block.nearMisses),
+  "GET /api/section/scorelines": (req, res) =>
+    sections.handleSection(req, res, (block) => block.predictedScorelines),
+  "GET /api/section/spotlight": (req, res) =>
+    sections.handleSection(req, res, (block) => ({
+      best: block.bestPredictor,
+      worst: block.worstPredictor,
+    })),
 
-// Path to the live SQLite database file (used by the sysadmin DB download).
-const DB_FILE_PATH = path.join(__dirname, "..", "data", "sports.db");
+  // Gated HTML pages.
+  "GET /admin/lineup": pages.handleAdminLineupPage,
+  "GET /admin/deploy": pages.handleDeployPage,
 
-// The admin upload feature is only usable when explicitly enabled AND a
-// password is configured. A blank password never matches.
-const adminUploadReady = () =>
-  LINEUP_UPLOAD_ENABLED &&
-  typeof LINEUP_ADMIN_PASSWORD === "string" &&
-  LINEUP_ADMIN_PASSWORD.length > 0;
+  // Sysadmin actions.
+  "POST /api/admin/redeploy": sysadmin.handleRedeploy,
+  "POST /api/admin/db-download": sysadmin.handleDbDownload,
 
-// The redeploy feature is only usable when explicitly enabled AND a sysadmin
-// password is configured. A blank password never matches.
-const redeployReady = () =>
-  REDEPLOY_ENABLED &&
-  typeof SYSADMIN_PASSWORD === "string" &&
-  SYSADMIN_PASSWORD.length > 0;
+  // Admin lineup surface.
+  "POST /api/admin/login": admin.handleAdminLogin,
+  "POST /api/admin/logout": (req, res) => admin.handleAdminLogout(res),
+  "GET /api/admin/session": admin.handleAdminSession,
+  "GET /api/matches": (req, res) => admin.handleAdminMatches(res),
+  "POST /api/admin/lineup": admin.handleAdminUpload,
+  "POST /api/admin/lineup/delete": admin.handleAdminDeleteLineup,
 
-// Constant-time password comparison to avoid leaking length/timing.
-function passwordMatches(supplied) {
-  if (typeof supplied !== "string" || !LINEUP_ADMIN_PASSWORD) return false;
-  const a = Buffer.from(supplied);
-  const b = Buffer.from(LINEUP_ADMIN_PASSWORD);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
-}
-
-// Constant-time comparison for the separate sysadmin (redeploy) password.
-function sysadminPasswordMatches(supplied) {
-  if (typeof supplied !== "string" || !SYSADMIN_PASSWORD) return false;
-  const a = Buffer.from(supplied);
-  const b = Buffer.from(SYSADMIN_PASSWORD);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
-}
-
-// ---- Short-lived admin session (stateless, signed cookie) ------------------
-// After a correct password, the client gets an HttpOnly cookie holding a
-// signed token "<expiryMs>.<hmac>". The HMAC is keyed by the admin password so
-// changing the password instantly invalidates every outstanding session, and
-// no server-side session store is needed. Upload requests then ride on the
-// cookie instead of resending the password each time.
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
-const SESSION_COOKIE = "admin_session";
-
-function signSession(expMs) {
-  const mac = crypto
-    .createHmac("sha256", LINEUP_ADMIN_PASSWORD)
-    .update(String(expMs))
-    .digest("hex");
-  return `${expMs}.${mac}`;
-}
-
-function issueSessionToken() {
-  return signSession(Date.now() + SESSION_TTL_MS);
-}
-
-function sessionValid(token) {
-  if (typeof token !== "string" || !LINEUP_ADMIN_PASSWORD) return false;
-  const dot = token.indexOf(".");
-  if (dot <= 0) return false;
-  const expMs = Number(token.slice(0, dot));
-  if (!Number.isFinite(expMs) || expMs < Date.now()) return false;
-  const expected = signSession(expMs);
-  const a = Buffer.from(token);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
-}
-
-// Remaining lifetime (ms) of a valid session token, or 0 if invalid/expired.
-function sessionRemainingMs(token) {
-  if (!sessionValid(token)) return 0;
-  const expMs = Number(token.slice(0, token.indexOf(".")));
-  return Math.max(0, expMs - Date.now());
-}
-
-function parseCookies(req) {
-  const header = req.headers.cookie;
-  const out = {};
-  if (!header) return out;
-  for (const part of header.split(";")) {
-    const i = part.indexOf("=");
-    if (i < 0) continue;
-    out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
-  }
-  return out;
-}
-
-// A request is authorised if it carries a valid session cookie OR the correct
-// password header (the latter keeps scripted/curl uploads working).
-function isAuthorised(req) {
-  const cookies = parseCookies(req);
-  if (sessionValid(cookies[SESSION_COOKIE])) return true;
-  return passwordMatches(req.headers["x-admin-password"]);
-}
-
-// Read a request body up to a byte cap, rejecting anything larger.
-function readBody(req, limit = MAX_UPLOAD_BYTES) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error("PAYLOAD_TOO_LARGE"));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
-}
-
-const MIME = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
+  // Public lineup lookups.
+  "GET /api/lineup": lineup.handleGetLineup,
+  "GET /api/lineups": lineup.handleGetLineups,
 };
-
-function sendJson(res, status, body) {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-  });
-  res.end(payload);
-}
-
-// In-memory cache of names so repeated API hits don't re-query Discord.
-let namesCache = {};
-let namesCachedAt = 0;
-const NAMES_TTL = 60 * 1000;
-
-// POST /api/admin/login — exchange the password for a short-lived session
-// cookie so subsequent uploads don't resend the password.
-async function handleAdminLogin(req, res) {
-  if (!adminUploadReady()) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
-  }
-  let password = req.headers["x-admin-password"];
-  if (password == null) {
-    // Fall back to a JSON body { password }.
-    try {
-      const body = await readBody(req, 4096);
-      password = body ? (JSON.parse(body).password ?? "") : "";
-    } catch {
-      password = "";
-    }
-  }
-  if (!passwordMatches(password)) {
-    sendJson(res, 401, { error: "Incorrect password." });
-    return;
-  }
-  const token = issueSessionToken();
-  const maxAge = Math.floor(SESSION_TTL_MS / 1000);
-  res.writeHead(200, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-    "Set-Cookie": `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}`,
-  });
-  res.end(JSON.stringify({ ok: true, expiresInMs: SESSION_TTL_MS }));
-}
-
-// POST /api/admin/logout — clear the session cookie.
-function handleAdminLogout(res) {
-  res.writeHead(200, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-    "Set-Cookie": `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
-  });
-  res.end(JSON.stringify({ ok: true }));
-}
-
-// POST /api/admin/lineup — session/password-gated lineup upload.
-async function handleAdminUpload(req, res) {
-  // Behave as if the route doesn't exist when the feature is off.
-  if (!adminUploadReady()) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
-  }
-  // Authorise before reading the (potentially large) body.
-  if (!isAuthorised(req)) {
-    sendJson(res, 401, {
-      error: "Not authenticated. Unlock with the password first.",
-    });
-    return;
-  }
-  let body;
-  try {
-    body = await readBody(req);
-  } catch (err) {
-    if (err && err.message === "PAYLOAD_TOO_LARGE") {
-      sendJson(res, 413, { error: "Payload too large (max 1 MB)." });
-      return;
-    }
-    sendJson(res, 400, { error: "Could not read request body." });
-    return;
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    sendJson(res, 400, {
-      error:
-        "That isn't valid JSON. Check for missing commas, quotes, or brackets.",
-    });
-    return;
-  }
-  // Optional fallback matchId from the UI, used only for a single entry that
-  // doesn't carry its own matchId.
-  const qsMatchId = new URL(req.url, "http://x").searchParams.get("matchId");
-  const fallbackMatchId =
-    qsMatchId != null && qsMatchId !== "" ? Number(qsMatchId) : null;
-  const result = validatePayload(parsed, fallbackMatchId);
-  if (!result.ok) {
-    sendJson(res, 422, { error: "Validation failed.", details: result.errors });
-    return;
-  }
-  try {
-    transaction(() =>
-      result.valid.forEach((v) => upsertLineup(v.matchId, v.data)),
-    );
-  } catch (err) {
-    console.error("Admin lineup upload error:", err);
-    sendJson(res, 500, { error: "Failed to save lineups." });
-    return;
-  }
-  const saved = result.valid.map((v) => ({
-    matchId: v.matchId,
-    label: `${v.match.team_a} v ${v.match.team_b}`,
-  }));
-  sendJson(res, 200, { ok: true, count: saved.length, saved });
-}
-
-// POST /api/admin/lineup/delete?matchId=N — session-gated lineup removal.
-async function handleAdminDeleteLineup(req, res) {
-  // Behave as if the route doesn't exist when the feature is off.
-  if (!adminUploadReady()) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
-  }
-  if (!isAuthorised(req)) {
-    sendJson(res, 401, {
-      error: "Not authenticated. Unlock with the password first.",
-    });
-    return;
-  }
-  const id = Number(new URL(req.url, "http://x").searchParams.get("matchId"));
-  if (!Number.isInteger(id) || id <= 0) {
-    sendJson(res, 400, { error: "A valid matchId is required." });
-    return;
-  }
-  try {
-    const removed = deleteLineup(id);
-    if (!removed) {
-      sendJson(res, 404, { error: "No lineup found for that match." });
-      return;
-    }
-    sendJson(res, 200, { ok: true, matchId: id });
-  } catch (err) {
-    console.error("Admin lineup delete error:", err);
-    sendJson(res, 500, { error: "Failed to delete lineup." });
-  }
-}
-
-// Guard so two clicks can't kick off two overlapping redeploys.
-let redeployInFlight = false;
-
-// POST /api/admin/redeploy — sysadmin-password-gated "pull & restart".
-// Validates the password, then spawns scripts/redeploy.sh fully detached so
-// the script survives this server being stopped by the script itself.
-async function handleRedeploy(req, res) {
-  // Behave as if the route doesn't exist when the feature is off.
-  if (!redeployReady()) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
-  }
-  let password = req.headers["x-sysadmin-password"];
-  if (password == null) {
-    // Fall back to a JSON body { password }.
-    try {
-      const body = await readBody(req, 4096);
-      password = body ? (JSON.parse(body).password ?? "") : "";
-    } catch {
-      password = "";
-    }
-  }
-  if (!sysadminPasswordMatches(password)) {
-    sendJson(res, 401, { error: "Incorrect sysadmin password." });
-    return;
-  }
-  if (redeployInFlight) {
-    sendJson(res, 409, { error: "A redeploy is already in progress." });
-    return;
-  }
-  redeployInFlight = true;
-
-  const scriptPath = path.join(__dirname, "..", "scripts", "redeploy.sh");
-  if (!fs.existsSync(scriptPath)) {
-    redeployInFlight = false;
-    sendJson(res, 500, { error: "Redeploy script is missing on the server." });
-    return;
-  }
-
-  try {
-    // Detached + ignored stdio + unref so the child keeps running (and can
-    // stop/restart this very server) after this process exits.
-    const child = spawn("bash", [scriptPath], {
-      cwd: path.join(__dirname, ".."),
-      env: process.env,
-      detached: true,
-      stdio: "ignore",
-    });
-    child.on("error", (err) => {
-      console.error("Failed to start redeploy script:", err);
-      redeployInFlight = false;
-    });
-    child.unref();
-  } catch (err) {
-    redeployInFlight = false;
-    console.error("Redeploy spawn error:", err);
-    sendJson(res, 500, { error: "Failed to start the redeploy script." });
-    return;
-  }
-
-  sendJson(res, 202, {
-    ok: true,
-    message:
-      "Redeploy started: pulling latest code and restarting. The server will be briefly unavailable.",
-  });
-}
-
-// POST /api/admin/db-download — sysadmin-password-gated database snapshot.
-// Validates the password, flushes the WAL into the main file, then streams the
-// SQLite database as a download so the production DB can be tested locally.
-async function handleDbDownload(req, res) {
-  // Behave as if the route doesn't exist when the feature is off.
-  if (!redeployReady()) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
-  }
-  let password = req.headers["x-sysadmin-password"];
-  if (password == null) {
-    try {
-      const body = await readBody(req, 4096);
-      password = body ? (JSON.parse(body).password ?? "") : "";
-    } catch {
-      password = "";
-    }
-  }
-  if (!sysadminPasswordMatches(password)) {
-    sendJson(res, 401, { error: "Incorrect sysadmin password." });
-    return;
-  }
-  if (!fs.existsSync(DB_FILE_PATH)) {
-    sendJson(res, 500, { error: "Database file is missing on the server." });
-    return;
-  }
-
-  // Flush the write-ahead log into the main db file so the snapshot we send is
-  // complete and self-contained (no separate -wal needed).
-  try {
-    const db = require("../db/database");
-    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-  } catch (err) {
-    console.error("DB checkpoint before download failed:", err);
-    // Continue — the snapshot is still usable, just possibly missing the most
-    // recent uncheckpointed writes.
-  }
-
-  let stat;
-  try {
-    stat = fs.statSync(DB_FILE_PATH);
-  } catch (err) {
-    console.error("DB stat before download failed:", err);
-    sendJson(res, 500, { error: "Could not read the database file." });
-    return;
-  }
-
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  res.writeHead(200, {
-    "Content-Type": "application/octet-stream",
-    "Content-Disposition": `attachment; filename="sports-${stamp}.db"`,
-    "Content-Length": stat.size,
-    "Cache-Control": "no-store",
-  });
-
-  const stream = fs.createReadStream(DB_FILE_PATH);
-  stream.on("error", (err) => {
-    console.error("DB download stream error:", err);
-    if (!res.headersSent) sendJson(res, 500, { error: "Download failed." });
-    else res.destroy();
-  });
-  stream.pipe(res);
-}
-
-async function handleStats(res) {
-  try {
-    const ids = getDistinctUserIds();
-    if (Date.now() - namesCachedAt > NAMES_TTL) {
-      namesCache = await resolveMany(ids);
-      namesCachedAt = Date.now();
-    } else {
-      // Resolve any IDs we haven't seen yet (mostly served from disk cache).
-      const missing = ids.filter((id) => !(id in namesCache));
-      if (missing.length) {
-        Object.assign(namesCache, await resolveMany(missing));
-      }
-    }
-    const nameOf = (id) => namesCache[id] || `User ${String(id).slice(-4)}`;
-    const data = buildAnalytics(nameOf);
-    sendJson(res, 200, data);
-  } catch (err) {
-    console.error("Analytics error:", err);
-    sendJson(res, 500, { error: "Failed to build analytics." });
-  }
-}
-
-function serveStatic(req, res) {
-  const urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
-  let rel = urlPath === "/" ? "index.html" : urlPath.replace(/^\/+/, "");
-  // The admin page is only reachable through the gated /admin/lineup route.
-  if (rel.toLowerCase() === "admin-lineup.html") {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
-  }
-  // The deploy page is only reachable through the gated /admin/deploy route.
-  if (rel.toLowerCase() === "deploy.html") {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
-  }
-  // Prevent path traversal: resolve and ensure it stays under publicDir.
-  const filePath = path.normalize(path.join(publicDir, rel));
-  if (!filePath.startsWith(publicDir)) {
-    res.writeHead(403);
-    res.end("Forbidden");
-    return;
-  }
-  fs.readFile(filePath, (err, content) => {
-    if (err) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Not found");
-      return;
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, {
-      "Content-Type": MIME[ext] || "application/octet-stream",
-    });
-    res.end(content);
-  });
-}
 
 const server = http.createServer((req, res) => {
   const pathname = (req.url || "/").split("?")[0];
-  if (req.method === "GET" && pathname === "/api/stats") {
-    handleStats(res);
-    return;
-  }
-  // Admin lineup upload page — only exists when the feature is enabled.
-  if (req.method === "GET" && pathname === "/admin/lineup") {
-    if (!adminUploadReady()) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Not found");
-      return;
-    }
-    fs.readFile(path.join(publicDir, "admin-lineup.html"), (err, content) => {
-      if (err) {
-        res.writeHead(500);
-        res.end("Failed to load page");
-        return;
-      }
-      res.writeHead(200, { "Content-Type": MIME[".html"] });
-      res.end(content);
-    });
-    return;
-  }
-  // Sysadmin redeploy page — only exists when the feature is enabled.
-  if (req.method === "GET" && pathname === "/admin/deploy") {
-    if (!redeployReady()) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Not found");
-      return;
-    }
-    fs.readFile(path.join(publicDir, "deploy.html"), (err, content) => {
-      if (err) {
-        res.writeHead(500);
-        res.end("Failed to load page");
-        return;
-      }
-      res.writeHead(200, { "Content-Type": MIME[".html"] });
-      res.end(content);
-    });
-    return;
-  }
-  if (req.method === "POST" && pathname === "/api/admin/redeploy") {
-    handleRedeploy(req, res);
-    return;
-  }
-  if (req.method === "POST" && pathname === "/api/admin/db-download") {
-    handleDbDownload(req, res);
-    return;
-  }
-  if (req.method === "POST" && pathname === "/api/admin/login") {
-    handleAdminLogin(req, res);
-    return;
-  }
-  if (req.method === "GET" && pathname === "/api/admin/session") {
-    if (!adminUploadReady()) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Not found");
-      return;
-    }
-    const remaining = sessionRemainingMs(parseCookies(req)[SESSION_COOKIE]);
-    res.writeHead(200, {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-    });
-    res.end(
-      JSON.stringify({ authorised: remaining > 0, expiresInMs: remaining }),
-    );
-    return;
-  }
-  if (req.method === "GET" && pathname === "/api/matches") {
-    if (!adminUploadReady()) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Not found");
-      return;
-    }
-    try {
-      sendJson(res, 200, listMatchesBrief());
-    } catch (err) {
-      console.error("Matches list error:", err);
-      sendJson(res, 500, { error: "Failed to load matches." });
-    }
-    return;
-  }
-  if (req.method === "POST" && pathname === "/api/admin/logout") {
-    handleAdminLogout(res);
-    return;
-  }
-  if (req.method === "POST" && pathname === "/api/admin/lineup") {
-    handleAdminUpload(req, res);
-    return;
-  }
-  if (req.method === "POST" && pathname === "/api/admin/lineup/delete") {
-    handleAdminDeleteLineup(req, res);
-    return;
-  }
-  if (req.method === "GET" && pathname === "/api/lineup") {
-    const id = Number(new URL(req.url, "http://x").searchParams.get("matchId"));
-    if (!Number.isInteger(id) || id <= 0) {
-      sendJson(res, 400, { error: "Invalid matchId" });
-      return;
-    }
-    try {
-      const data = getLineup(id);
-      if (!data) {
-        sendJson(res, 404, { error: "No lineup for this match" });
-        return;
-      }
-      sendJson(res, 200, data);
-    } catch (err) {
-      console.error("Lineup error:", err);
-      sendJson(res, 500, { error: "Failed to load lineup." });
-    }
-    return;
-  }
-  if (req.method === "GET" && pathname === "/api/lineups") {
-    const raw = new URL(req.url, "http://x").searchParams.get("matchIds") || "";
-    const ids = raw
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter((n) => Number.isInteger(n) && n > 0);
-    try {
-      sendJson(res, 200, getLineupsForMatches(ids));
-    } catch (err) {
-      console.error("Lineups error:", err);
-      sendJson(res, 500, { error: "Failed to load lineups." });
-    }
+  const handler = routes[`${req.method} ${pathname}`];
+  if (handler) {
+    handler(req, res);
     return;
   }
   if (req.method === "GET") {

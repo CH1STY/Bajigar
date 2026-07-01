@@ -4,7 +4,7 @@ import {
   WC_BRACKET,
   WC_SCHEDULE,
 } from "./mod_bracket.js";
-import { destroy, el, esc, parseScore } from "./mod_core.js";
+import { apiGet, destroy, el, esc, parseScore } from "./mod_core.js";
 import { loadLineup } from "./mod_lineup.js";
 import { barChart } from "./mod_overview.js";
 import { sortableTable } from "./mod_tables.js";
@@ -107,8 +107,18 @@ export function startCountdownTicker() {
 }
 startCountdownTicker();
 
-// Per-prefix cache of the match list so team search can re-filter client-side.
-export const matchExplorerData = {};
+// Per-prefix cache of the full lightweight match set (all statuses, no
+// predictions) for the scope, used for team head-to-head history in the modal.
+export const matchsetData = {};
+
+/** Load (and cache) the scope's full lightweight match set. */
+export function loadMatchset(p, scope) {
+  matchsetData[p] = [];
+  const q = scope == null ? "" : `?t=${encodeURIComponent(scope)}`;
+  return apiGet(`/api/section/matchset${q}`)
+    .then((rows) => (matchsetData[p] = rows || []))
+    .catch(() => (matchsetData[p] = []));
+}
 
 export function matchBucket(m) {
   if (m.state === "open") return "open";
@@ -119,48 +129,123 @@ export function matchBucket(m) {
   return "closed";
 }
 
-export function renderMatchExplorer(p, matches) {
-  matchExplorerData[p] = matches || [];
+const EXPLORER_PAGE = 20;
+const EXPLORER_BUCKETS = ["open", "closed", "upcoming", "resolved"];
+
+// Per-prefix column controllers so the shared search box can reload all four.
+const explorerColumns = {};
+
+/**
+ * Wire the four-column match explorer for a block. Each column pages
+ * independently from the server (`/api/section/matches`), shows a skeleton
+ * while a page loads and gets its own Prev/Next pager. A single search box
+ * (debounced) filters all four columns server-side.
+ * @param {"ov"|"tn"} p
+ * @param {number|null} scope
+ */
+export function loadMatchExplorer(p, scope) {
+  loadMatchset(p, scope); // powers head-to-head history in the match modal
   const search = document.getElementById(`${p}-match-search`);
+  const getSearch = () => (search ? search.value.trim() : "");
+  explorerColumns[p] = EXPLORER_BUCKETS.map((key) =>
+    makeExplorerColumn(p, scope, key, getSearch),
+  );
   if (search && !search.dataset.bound) {
     search.dataset.bound = "1";
-    search.addEventListener("input", () => drawMatchColumns(p));
+    let timer = null;
+    search.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        (explorerColumns[p] || []).forEach((c) => c.reload());
+      }, 250);
+    });
   }
-  drawMatchColumns(p);
+  explorerColumns[p].forEach((c) => c.load());
 }
 
-export function drawMatchColumns(p) {
-  const matches = matchExplorerData[p] || [];
-  const search = document.getElementById(`${p}-match-search`);
-  const q = (search ? search.value : "").trim().toLowerCase();
-  const filtered = q
-    ? matches.filter((m) => `${m.teamA} ${m.teamB}`.toLowerCase().includes(q))
-    : matches;
-
-  const buckets = { open: [], closed: [], upcoming: [], resolved: [] };
-  for (const m of filtered) buckets[matchBucket(m)].push(m);
-  const byMatchNumber = (a, b) =>
-    (b.matchNumber ?? b.id) - (a.matchNumber ?? a.id);
-  // Open/Upcoming: soonest first so the shortest countdown sits at the top.
-  // Matches without an end time fall to the bottom; ties break by match number.
-  const bySoonest = (a, b) =>
-    (a.endTime ?? Infinity) - (b.endTime ?? Infinity) ||
-    (a.matchNumber ?? a.id) - (b.matchNumber ?? b.id);
-  buckets.open.sort(bySoonest);
-  buckets.closed.sort(byMatchNumber);
-  buckets.upcoming.sort(bySoonest);
-  buckets.resolved.sort(byMatchNumber);
-  renderMatchColumn(p, "open", buckets.open);
-  renderMatchColumn(p, "closed", buckets.closed);
-  renderMatchColumn(p, "upcoming", buckets.upcoming);
-  renderMatchColumn(p, "resolved", buckets.resolved);
-}
-
-export function renderMatchColumn(p, key, matches) {
+/** Build a single server-paginated match column controller. */
+function makeExplorerColumn(p, scope, key, getSearch) {
   const listEl = document.getElementById(`${p}-col-${key}`);
   const countEl = document.getElementById(`${p}-col-${key}-count`);
-  if (!listEl) return;
-  if (countEl) countEl.textContent = matches.length;
+  let page = 1;
+  let reqSeq = 0;
+
+  // Ensure a pager element sits right after the list.
+  let pager = document.getElementById(`${p}-col-${key}-pager`);
+  if (!pager && listEl) {
+    pager = el("div", {
+      className: "match-pager",
+      id: `${p}-col-${key}-pager`,
+    });
+    listEl.after(pager);
+  }
+
+  function renderPager(data) {
+    if (!pager) return;
+    pager.innerHTML = "";
+    if (!data || (data.totalPages || 1) <= 1) return;
+    const prev = el("button", {
+      type: "button",
+      className: "match-page-btn",
+      textContent: "‹ Prev",
+    });
+    const info = el("span", {
+      className: "match-page-info",
+      textContent: `Page ${data.page} / ${data.totalPages}`,
+    });
+    const next = el("button", {
+      type: "button",
+      className: "match-page-btn",
+      textContent: "Next ›",
+    });
+    prev.disabled = data.page <= 1;
+    next.disabled = data.page >= data.totalPages;
+    prev.addEventListener("click", () => {
+      if (page > 1) {
+        page -= 1;
+        load();
+      }
+    });
+    next.addEventListener("click", () => {
+      page += 1;
+      load();
+    });
+    pager.append(prev, info, next);
+  }
+
+  async function load() {
+    if (!listEl) return;
+    const seq = ++reqSeq;
+    listEl.innerHTML =
+      '<div class="skeleton sk-card"></div><div class="skeleton sk-card"></div>';
+    const params = new URLSearchParams();
+    if (scope != null) params.set("t", String(scope));
+    params.set("bucket", key);
+    params.set("page", String(page));
+    params.set("pageSize", String(EXPLORER_PAGE));
+    const s = getSearch();
+    if (s) params.set("search", s);
+    let data;
+    try {
+      data = await apiGet(`/api/section/matches?${params.toString()}`);
+    } catch {
+      if (seq !== reqSeq) return;
+      listEl.innerHTML = '<div class="empty small">Couldn\'t load</div>';
+      if (pager) pager.innerHTML = "";
+      return;
+    }
+    if (seq !== reqSeq) return; // superseded by a newer request
+    page = data.page;
+    if (countEl) countEl.textContent = data.total;
+    renderMatchCards(listEl, key, data.items || [], p);
+    renderPager(data);
+  }
+
+  return { load, reload: () => ((page = 1), load()) };
+}
+
+/** Render a page of lightweight match cards into a column list element. */
+export function renderMatchCards(listEl, key, matches, p) {
   listEl.innerHTML = "";
   if (!matches.length) {
     listEl.innerHTML = '<div class="empty small">None</div>';
@@ -198,13 +283,40 @@ export function renderMatchColumn(p, key, matches) {
   }
 }
 
-export function openMatchModal(m, p) {
+/**
+ * Open the match modal. Cards carry only lightweight data, so the full detail
+ * (per-user predictions + score distribution) is fetched on demand the first
+ * time the modal is opened for that match.
+ */
+export async function openMatchModal(m, p) {
   const overlay = document.getElementById("match-modal");
   const body = document.getElementById("match-modal-body");
   if (!overlay || !body) return;
-  renderMatchDetail(body, m, "modal-match-dist", p);
   overlay.hidden = false;
   document.body.classList.add("modal-open");
+
+  if (m && Array.isArray(m.predictions)) {
+    renderMatchDetail(body, m, "modal-match-dist", p);
+    return;
+  }
+
+  destroy("modal-match-dist");
+  body.innerHTML =
+    '<div class="md-loading"><div class="skeleton sk-line"></div><div class="skeleton sk-line"></div><div class="skeleton sk-block"></div></div>';
+  try {
+    const full = await apiGet(
+      `/api/section/match?matchId=${encodeURIComponent(m.id)}`,
+    );
+    if (overlay.hidden) return; // user closed it while loading
+    renderMatchDetail(body, full, "modal-match-dist", p);
+  } catch {
+    body.innerHTML = '<div class="empty">Couldn\'t load this match.</div>';
+  }
+}
+
+/** Open the modal for a match id, fetching its detail on demand. */
+export function openMatchById(matchId, p) {
+  return openMatchModal({ id: matchId }, p);
 }
 
 export function closeMatchModal() {
@@ -420,7 +532,7 @@ export function renderMatchDetail(container, m, chartId, p) {
   // For matches that haven't been played yet (Upcoming) or are still taking
   // picks (Open), surface how each side has fared so far in this tournament.
   if (m.state === "open" || m.state === "pending") {
-    const history = renderTeamHistorySection(m, matchExplorerData[p]);
+    const history = renderTeamHistorySection(m, matchsetData[p]);
     if (history) container.append(history);
   }
 

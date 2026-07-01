@@ -795,6 +795,100 @@ table.standings-table {
   text-align: center;
 }
 
+/* ---- Skeleton loading placeholders ---- */
+.skeleton {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+  animation: sk-shimmer 1.2s infinite;
+}
+@keyframes sk-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+.sk-line {
+  height: 14px;
+  width: 100%;
+}
+.sk-kpi {
+  height: 42px;
+  width: 100%;
+}
+.sk-block {
+  height: 220px;
+  width: 100%;
+}
+.sk-card {
+  height: 58px;
+  width: 100%;
+  margin-bottom: 8px;
+}
+/* Skeleton rows inside a table keep the cell padding but show a shimmer bar. */
+.sk-row td {
+  padding: 10px 12px;
+}
+.sk-row .sk-line {
+  height: 12px;
+}
+.md-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+}
+
+/* ---- Per-column match pager (match explorer) ---- */
+.match-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.match-pager:empty {
+  display: none;
+}
+.match-page-btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.match-page-btn:hover:not(:disabled) {
+  border-color: var(--accent, #4f8cff);
+}
+.match-page-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.match-page-info {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* ---- Match explorer ---- */
 .match-explorer-controls {
   margin-bottom: 14px;

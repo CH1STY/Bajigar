@@ -498,4 +498,100 @@ function buildAnalytics(nameOf) {
   };
 }
 
-module.exports = { buildAnalytics, getDistinctUserIds };
+/**
+ * Compute the analytics block for a single scope on demand. This backs the
+ * fine-grained per-section web endpoints (each returns just one slice of the
+ * block) instead of shipping every tournament at once.
+ * @param {number|null} tournamentId - null/undefined => global (all matches).
+ * @param {(id: string) => string} nameOf
+ * @returns {{ block: object, tournament: object|null } | null} null when the
+ *   tournament id is unknown.
+ */
+function computeScopeBlock(tournamentId, nameOf) {
+  const name = (id) => {
+    try {
+      return nameOf ? nameOf(id) : id;
+    } catch {
+      return id;
+    }
+  };
+  const matches = allMatchesStmt.all();
+  const predictions = allPredictionsStmt.all();
+
+  if (tournamentId == null) {
+    return {
+      block: computeBlock(matches, predictions, name),
+      tournament: null,
+    };
+  }
+
+  const t = allTournamentsStmt.all().find((x) => x.id === tournamentId);
+  if (!t) return null;
+  const tMatches = matches.filter((m) => m.tournament_id === tournamentId);
+  const block = computeBlock(tMatches, predictions, name);
+  const groups = getTournamentGroups(t.name);
+  if (groups) annotateGroups(block, groups);
+  return {
+    block,
+    tournament: { id: t.id, name: t.name, status: t.status },
+  };
+}
+
+/**
+ * Lightweight boot metadata: scoring rules, the default tournament and the
+ * tournament list (id/name/status + prediction count + group metadata) used by
+ * the picker and summary KPIs. Carries no heavy per-match / per-player data.
+ * @returns {object}
+ */
+function buildMeta() {
+  const matches = allMatchesStmt.all();
+  const predictions = allPredictionsStmt.all();
+
+  const tidByMatch = new Map(matches.map((m) => [m.id, m.tournament_id]));
+  const predCountByTournament = new Map();
+  for (const p of predictions) {
+    const tid = tidByMatch.get(p.match_id);
+    if (tid == null) continue;
+    predCountByTournament.set(tid, (predCountByTournament.get(tid) || 0) + 1);
+  }
+
+  const tournaments = allTournamentsStmt.all().map((t) => {
+    const groups = getTournamentGroups(t.name);
+    const out = {
+      id: t.id,
+      name: t.name,
+      status: t.status,
+      overview: { totalPredictions: predCountByTournament.get(t.id) || 0 },
+      grouped: !!groups,
+    };
+    if (groups) {
+      out.groups = groups.order.slice();
+      out.teamGroups = Object.fromEntries(groups.teamGroup);
+    }
+    return out;
+  });
+
+  const wanted = WEB_DEFAULT_TOURNAMENT
+    ? String(WEB_DEFAULT_TOURNAMENT).trim().toLowerCase()
+    : null;
+  const def = wanted
+    ? tournaments.find(
+        (t) => String(t.id) === wanted || t.name.toLowerCase() === wanted,
+      )
+    : null;
+  const defaultTournamentId = def ? def.id : (tournaments[0]?.id ?? null);
+
+  return {
+    generatedAt: Date.now(),
+    scoring: SCORING,
+    tournaments,
+    defaultTournamentId,
+  };
+}
+
+module.exports = {
+  buildAnalytics,
+  computeScopeBlock,
+  buildMeta,
+  getDistinctUserIds,
+};

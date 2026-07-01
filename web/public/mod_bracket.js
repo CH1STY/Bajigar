@@ -6,7 +6,6 @@ import {
   openBracketProjectionModal,
   openMatchModal,
 } from "./mod_matches.js";
-import { render } from "./mod_overview.js";
 import { sortableTable } from "./mod_tables.js";
 import { computeLeagueTable } from "./mod_tournament.js";
 

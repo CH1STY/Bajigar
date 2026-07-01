@@ -1,12 +1,12 @@
 import { renderThirdPlacedCard } from "./mod_bracket.js";
-import { charts, el, esc, parseScore } from "./mod_core.js";
+import { apiGet, charts, el, esc, parseScore } from "./mod_core.js";
 import {
   discStyle,
   minutesList,
   ratingClass,
   resolveMotm,
 } from "./mod_lineup.js";
-import { barChart, emptyCanvas, render } from "./mod_overview.js";
+import { barChart, emptyCanvas } from "./mod_overview.js";
 import { paginatedStandingsTable, rankMedal } from "./mod_tables.js";
 import { computeLeagueTable, renderTeamTable } from "./mod_tournament.js";
 import { appState } from "./mod_state.js";
@@ -748,10 +748,30 @@ export function openPlayerStats(player, tournament) {
  * @param {Object} player - Standings row for the predictor ({ id, name, ... }).
  * @param {Object} block  - Analytics block with a `matchList` array.
  */
-export function openPredictorHistory(player, block) {
+/**
+ * Open a predictor's match-by-match history modal. The per-match predictions
+ * are fetched on demand from `/api/section/player-history` (they are not part
+ * of the lightweight standings payload).
+ * @param {Object} player - the standings row (id, name, points…).
+ * @param {number|null} scope - tournament id, or null for the global overview.
+ */
+export async function openPredictorHistory(player, scope) {
   const modal = document.getElementById("player-modal");
   const body = document.getElementById("player-modal-body");
   if (!modal || !body || !player) return;
+
+  const dialog0 = modal.querySelector(".modal");
+  if (dialog0) {
+    dialog0.classList.remove("modal--narrow");
+    dialog0.classList.add("modal--wide");
+  }
+  body.innerHTML = `<div style="padding:20px;">
+    <h2 style="margin:0 0 8px;">${esc(player.name)} — Prediction History</h2>
+    <div class="skeleton sk-line" style="max-width:320px;margin-bottom:16px;"></div>
+    <div class="skeleton sk-block"></div>
+  </div>`;
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
 
   const sc = appState.scoringConfig || {};
   const fb = sc.football || {
@@ -763,13 +783,22 @@ export function openPredictorHistory(player, block) {
   };
   const ck = sc.cricket || { correct: 10 };
 
-  // Collect this player's predictions across every match in the block.
-  const matchList = (block && block.matchList) || [];
-  const entries = [];
-  for (const m of matchList) {
-    const pred = (m.predictions || []).find((p) => p.id === player.id);
-    if (!pred) continue;
-    entries.push({ m, pred });
+  // Fetch this player's predictions across every match in scope.
+  let entries = [];
+  let info = player;
+  try {
+    const params = new URLSearchParams();
+    if (scope != null) params.set("t", String(scope));
+    params.set("playerId", String(player.id));
+    const data = await apiGet(
+      `/api/section/player-history?${params.toString()}`,
+    );
+    if (modal.hidden) return; // closed while loading
+    entries = (data.entries || []).map((e) => ({ m: e.match, pred: e.pred }));
+    if (data.player) info = data.player;
+  } catch {
+    body.innerHTML = `<div style="padding:20px;"><h2 style="margin:0 0 8px;">${esc(player.name)} — Prediction History</h2><p style="color:var(--muted)"><em>Couldn't load prediction history.</em></p></div>`;
+    return;
   }
   entries.sort(
     (a, b) => (b.m.matchNumber ?? b.m.id) - (a.m.matchNumber ?? a.m.id),
@@ -908,15 +937,15 @@ export function openPredictorHistory(player, block) {
   const chip = (label, value) =>
     `<span class="ps-chip" style="display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border:1px solid var(--line); border-radius:999px; background:var(--panel-2); font-size:13px;"><strong>${esc(String(value))}</strong> ${esc(label)}</span>`;
   const chips = [
-    chip("pts", player.points ?? 0),
-    chip("predictions", player.predictions ?? 0),
-    chip("exact", player.exact ?? 0),
-    chip("near", player.near ?? 0),
-    chip("hits", player.hits ?? 0),
+    chip("pts", info.points ?? 0),
+    chip("predictions", info.predictions ?? 0),
+    chip("exact", info.exact ?? 0),
+    chip("near", info.near ?? 0),
+    chip("hits", info.hits ?? 0),
   ].join("");
 
   body.innerHTML = `<div style="padding:20px;">
-    <h2 style="margin:0 0 8px;">${esc(player.name)} — Prediction History</h2>
+    <h2 style="margin:0 0 8px;">${esc(info.name)} — Prediction History</h2>
     <div class="ps-chips" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">${chips}</div>
     <div id="predictor-history-table"></div>
   </div>`;

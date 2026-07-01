@@ -52,4 +52,40 @@ export function parseScore(v) {
   return m ? { a: +m[1], b: +m[2] } : null;
 }
 
+/* ---- API + skeleton helpers (per-section lazy loading) ------------------- */
+
+/** Fetch JSON from an API path, throwing on a non-2xx response. */
+export async function apiGet(path) {
+  const res = await fetch(path, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${path}`);
+  return res.json();
+}
+
+/**
+ * Scope query suffix for a block: "" for the global overview or "?t=<id>" for a
+ * single tournament. Used to point each section endpoint at the right data set.
+ * @param {number|null} scope
+ */
+export function scopeQuery(scope) {
+  return scope == null ? "" : `?t=${encodeURIComponent(scope)}`;
+}
+
+/**
+ * Fill a container with shimmering skeleton placeholders while its real data
+ * loads. `opts.count` sets how many bars, `opts.className` their shape class.
+ * @param {string|HTMLElement} target
+ * @param {{count?: number, className?: string}} [opts]
+ */
+export function skeletonFill(target, opts = {}) {
+  const node =
+    typeof target === "string" ? document.getElementById(target) : target;
+  if (!node) return;
+  const count = opts.count || 3;
+  const cls = opts.className || "sk-line";
+  node.innerHTML = Array.from(
+    { length: count },
+    () => `<div class="skeleton ${cls}"></div>`,
+  ).join("");
+}
+
 /** HTML template for one analytics block, with element IDs namespaced by prefix. */
